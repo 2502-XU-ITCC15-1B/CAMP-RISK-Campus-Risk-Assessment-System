@@ -1,12 +1,14 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
 import { X, Upload } from 'lucide-react';
 import { xuLogo } from '../constants/xuLogo';
 import { useAuth } from '../context/AuthContext';
-import { submitIncidentReport } from '../lib/api';
+import { fetchReport, submitIncidentReport, updateGuardIncidentReport } from '../lib/api';
 
 export function IncidentReport() {
   const navigate = useNavigate();
+  const { reportId } = useParams<{ reportId?: string }>();
+  const isEdit = Boolean(reportId);
   const { user } = useAuth();
   const [hazardTypes, setHazardTypes] = useState<string[]>([]);
   const [otherHazard, setOtherHazard] = useState('');
@@ -18,6 +20,9 @@ export function IncidentReport() {
   const [photo, setPhoto] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
+  const [initialLoading, setInitialLoading] = useState(isEdit);
+  const [existingPhotoUrl, setExistingPhotoUrl] = useState<string | null>(null);
 
   const hazardOptions = [
     'Slip/Trip Hazard',
@@ -29,6 +34,50 @@ export function IncidentReport() {
     'Equipment Failure',
     'Other (specify)',
   ];
+
+  useEffect(() => {
+    if (!isEdit || !reportId) {
+      setInitialLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setInitialLoading(true);
+    setLoadError('');
+    void (async () => {
+      try {
+        const r = await fetchReport(reportId);
+        if (cancelled) return;
+        if (!r) {
+          setLoadError('Report not found.');
+          return;
+        }
+        if (r.status_code !== 'pending') {
+          setLoadError(
+            'This report can no longer be edited. Only Pending reports (before SSIO assessment) can be updated.',
+          );
+          return;
+        }
+        setHazardTypes(Array.isArray(r.hazard_types) ? [...r.hazard_types] : []);
+        setOtherHazard(r.other_hazard || '');
+        setBuilding(r.building || '');
+        setFloor(r.floor || '');
+        setRoom(r.room || '');
+        setSpecific(r.specific_location || '');
+        setDescription(r.description || '');
+        setExistingPhotoUrl(r.photo_url ?? null);
+        setPhoto(null);
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : 'Could not load report');
+        }
+      } finally {
+        if (!cancelled) setInitialLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isEdit, reportId]);
 
   const toggleHazard = (hazard: string) => {
     if (hazardTypes.includes(hazard)) {
@@ -70,7 +119,11 @@ export function IncidentReport() {
       if (photo) {
         fd.append('photo', photo);
       }
-      await submitIncidentReport(fd);
+      if (isEdit && reportId) {
+        await updateGuardIncidentReport(reportId, fd);
+      } else {
+        await submitIncidentReport(fd);
+      }
       navigate('/guard/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Submission failed');
@@ -103,7 +156,7 @@ export function IncidentReport() {
       <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 lg:p-10">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl text-slate-800">New Incident Report</h2>
+            <h2 className="text-2xl text-slate-800">{isEdit ? 'Update Incident Report' : 'New Incident Report'}</h2>
             <button
               type="button"
               onClick={() => navigate('/guard/dashboard')}
@@ -113,133 +166,148 @@ export function IncidentReport() {
             </button>
           </div>
 
-          {error && (
-            <div className="mb-6 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">{error}</div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-8">
-            <div>
-              <label className="block text-slate-800 mb-3">
-                Hazard Type
-                <span className="text-sm text-slate-600 ml-2">(Select all that apply)</span>
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
-                {hazardOptions.map((hazard) => (
-                  <label
-                    key={hazard}
-                    className="flex items-center gap-3 p-3 border border-slate-300 rounded-md cursor-pointer hover:bg-slate-50 transition-colors"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={hazardTypes.includes(hazard)}
-                      onChange={() => toggleHazard(hazard)}
-                      className="h-5 w-5 text-[var(--xu-blue)] rounded focus:ring-[var(--xu-blue)]"
-                    />
-                    <span className="text-slate-700">{hazard}</span>
-                  </label>
-                ))}
-              </div>
-              {hazardTypes.includes('Other (specify)') && (
-                <input
-                  type="text"
-                  value={otherHazard}
-                  onChange={(e) => setOtherHazard(e.target.value)}
-                  placeholder="Please specify"
-                  className="w-full mt-4 px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
-                />
+          {initialLoading ? (
+            <p className="text-sm text-slate-600">Loading report…</p>
+          ) : loadError ? (
+            <div className="mb-6 p-3 rounded-md bg-amber-50 border border-amber-200 text-sm text-amber-900">
+              {loadError}
+            </div>
+          ) : (
+            <>
+              {error && (
+                <div className="mb-6 p-3 rounded-md bg-red-50 border border-red-200 text-sm text-red-800">{error}</div>
               )}
-            </div>
 
-            <div>
-              <label className="block text-slate-800 mb-3">Photo Upload</label>
-              <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-[var(--xu-blue)] transition-colors">
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png"
-                  onChange={handleFileChange}
-                  className="hidden"
-                  id="photo-upload"
-                />
-                <label htmlFor="photo-upload" className="cursor-pointer">
-                  <Upload className="h-12 w-12 mx-auto mb-3 text-slate-400" />
-                  <p className="text-slate-700 mb-1">Click to Upload Image</p>
-                  <p className="text-sm text-slate-500">(JPG/PNG, Max 5MB)</p>
-                  {photo && (
-                    <p className="text-sm text-[var(--xu-blue)] mt-2">Selected: {photo.name}</p>
+              <form onSubmit={handleSubmit} className="space-y-8">
+                <div>
+                  <label className="block text-slate-800 mb-3">
+                    Hazard Type
+                    <span className="text-sm text-slate-600 ml-2">(Select all that apply)</span>
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
+                    {hazardOptions.map((hazard) => (
+                      <label
+                        key={hazard}
+                        className="flex items-center gap-3 p-3 border border-slate-300 rounded-md cursor-pointer hover:bg-slate-50 transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={hazardTypes.includes(hazard)}
+                          onChange={() => toggleHazard(hazard)}
+                          className="h-5 w-5 text-[var(--xu-blue)] rounded focus:ring-[var(--xu-blue)]"
+                        />
+                        <span className="text-slate-700">{hazard}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {hazardTypes.includes('Other (specify)') && (
+                    <input
+                      type="text"
+                      value={otherHazard}
+                      onChange={(e) => setOtherHazard(e.target.value)}
+                      placeholder="Please specify"
+                      className="w-full mt-4 px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
+                    />
                   )}
-                </label>
-              </div>
-            </div>
+                </div>
 
-            <div>
-              <label className="block text-slate-800 mb-3">Location Details</label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <input
-                    type="text"
-                    value={building}
-                    onChange={(e) => setBuilding(e.target.value)}
-                    placeholder="Building"
-                    required
-                    className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
-                  />
+                  <label className="block text-slate-800 mb-3">Photo Upload</label>
+                  <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center hover:border-[var(--xu-blue)] transition-colors">
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      id="photo-upload"
+                    />
+                    <label htmlFor="photo-upload" className="cursor-pointer">
+                      <Upload className="h-12 w-12 mx-auto mb-3 text-slate-400" />
+                      <p className="text-slate-700 mb-1">Click to Upload Image</p>
+                      <p className="text-sm text-slate-500">(JPG/PNG, Max 5MB)</p>
+                      {photo && (
+                        <p className="text-sm text-[var(--xu-blue)] mt-2">Selected: {photo.name}</p>
+                      )}
+                      {isEdit && !photo && existingPhotoUrl ? (
+                        <p className="text-sm text-slate-600 mt-2">
+                          Current photo is on file. Choose a new file only if you want to replace it.
+                        </p>
+                      ) : null}
+                    </label>
+                  </div>
                 </div>
-                <div>
-                  <input
-                    type="text"
-                    value={floor}
-                    onChange={(e) => setFloor(e.target.value)}
-                    placeholder="Floor"
-                    required
-                    className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
-                  />
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    value={room}
-                    onChange={(e) => setRoom(e.target.value)}
-                    placeholder="Room/Zone"
-                    required
-                    className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
-                  />
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    value={specific}
-                    onChange={(e) => setSpecific(e.target.value)}
-                    placeholder="Specific Location"
-                    className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
-                  />
-                </div>
-              </div>
-            </div>
 
-            <div>
-              <label className="block text-slate-800 mb-3">
-                Description
-                <span className="text-sm text-slate-600 ml-2">(Optional)</span>
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={4}
-                placeholder="Additional details about the incident..."
-                className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white resize-none"
-              />
-            </div>
+                <div>
+                  <label className="block text-slate-800 mb-3">Location Details</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <input
+                        type="text"
+                        value={building}
+                        onChange={(e) => setBuilding(e.target.value)}
+                        placeholder="Building"
+                        required
+                        className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        value={floor}
+                        onChange={(e) => setFloor(e.target.value)}
+                        placeholder="Floor"
+                        required
+                        className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        value={room}
+                        onChange={(e) => setRoom(e.target.value)}
+                        placeholder="Room/Zone"
+                        required
+                        className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
+                      />
+                    </div>
+                    <div>
+                      <input
+                        type="text"
+                        value={specific}
+                        onChange={(e) => setSpecific(e.target.value)}
+                        placeholder="Specific Location"
+                        className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white"
+                      />
+                    </div>
+                  </div>
+                </div>
 
-            <div className="flex justify-end pt-4">
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full sm:w-auto px-8 py-3 bg-[var(--xu-blue)] text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {submitting ? 'Submitting…' : 'Submit Report'}
-              </button>
-            </div>
-          </form>
+                <div>
+                  <label className="block text-slate-800 mb-3">
+                    Description
+                    <span className="text-sm text-slate-600 ml-2">(Optional)</span>
+                  </label>
+                  <textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={4}
+                    placeholder="Additional details about the incident..."
+                    className="w-full px-4 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)] bg-white resize-none"
+                  />
+                </div>
+
+                <div className="flex justify-end pt-4">
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="w-full sm:w-auto px-8 py-3 bg-[var(--xu-blue)] text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Submit Report'}
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
         </div>
       </main>
     </div>

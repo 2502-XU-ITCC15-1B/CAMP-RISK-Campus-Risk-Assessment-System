@@ -157,6 +157,23 @@ export async function submitIncidentReport(form: FormData): Promise<ApiReport> {
   return body as ApiReport;
 }
 
+/** Guard-only: revise a Pending report they submitted (multipart, same fields as create). */
+export async function updateGuardIncidentReport(reportId: string, form: FormData): Promise<ApiReport> {
+  const path = `/api/reports/${encodeURIComponent(reportId)}/update/`;
+  const res = await fetch(apiUrl(path), {
+    ...fetchDefaults,
+    // POST required: Django only parses multipart into POST/FILES for POST, not PATCH.
+    method: 'POST',
+    body: form,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = typeof body.error === 'string' ? body.error : 'Could not update report';
+    throw new Error(msg);
+  }
+  return body as ApiReport;
+}
+
 export interface MitigationTracking {
   total_actions: number;
   completed_actions: number;

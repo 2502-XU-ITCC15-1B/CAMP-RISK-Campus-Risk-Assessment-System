@@ -49,6 +49,7 @@ export const router = createBrowserRouter([
         element: <GuardLayout />,
         children: [
           { path: 'dashboard', Component: GuardDashboard },
+          { path: 'report/edit/:reportId', Component: IncidentReport },
           { path: 'report', Component: IncidentReport },
         ],
       },

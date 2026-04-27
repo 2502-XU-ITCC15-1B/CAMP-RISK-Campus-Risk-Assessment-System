@@ -225,6 +225,81 @@ def report_list_create(request):
 
 
 @csrf_exempt
+@require_http_methods(['POST'])
+def report_guard_update(request, report_id: str):
+    """Allow the submitting guard to revise a report while it is still Pending.
+
+    Uses POST (not PATCH) because Django only parses multipart/form-data into
+    request.POST / request.FILES for POST requests.
+    """
+    if not request.user.is_authenticated:
+        return JsonResponse({'error': 'Authentication required'}, status=401)
+    if _is_admin(request.user):
+        return JsonResponse({'error': 'Admins cannot use this endpoint'}, status=403)
+    try:
+        pk = _parse_report_pk(report_id)
+    except ValueError:
+        return JsonResponse({'error': 'Invalid report id'}, status=400)
+    try:
+        report = IncidentReport.objects.get(pk=pk)
+    except IncidentReport.DoesNotExist:
+        return JsonResponse({'error': 'Not found'}, status=404)
+    if report.submitted_by_user_id != str(request.user.id):
+        return JsonResponse({'error': 'Forbidden'}, status=403)
+    if report.status != IncidentReport.Status.PENDING:
+        return JsonResponse(
+            {
+                'error': 'You can only update reports that are still Pending (not yet assessed or closed).',
+            },
+            status=400,
+        )
+
+    if not request.content_type or 'multipart/form-data' not in request.content_type:
+        return JsonResponse({'error': 'Use multipart form data (same fields as a new report)'}, status=400)
+
+    submitted_by_name = (request.POST.get('submitted_by_name') or '').strip() or request.user.get_full_name().strip() or request.user.username
+    ht = request.POST.get('hazard_types') or '[]'
+    try:
+        hazard_types = json.loads(ht) if isinstance(ht, str) else []
+    except json.JSONDecodeError:
+        hazard_types = []
+    other_hazard = (request.POST.get('other_hazard') or '').strip()
+    building = (request.POST.get('building') or '').strip()
+    floor = (request.POST.get('floor') or '').strip()
+    room = (request.POST.get('room') or '').strip()
+    specific_location = (request.POST.get('specific_location') or '').strip()
+    description = (request.POST.get('description') or '').strip()
+    photo = request.FILES.get('photo')
+
+    if not building or not floor or not room:
+        return JsonResponse({'error': 'building, floor, and room are required'}, status=400)
+    if not hazard_types:
+        return JsonResponse({'error': 'Select at least one hazard type'}, status=400)
+
+    old_status = report.status
+    report.submitted_by_name = submitted_by_name
+    report.hazard_types = hazard_types
+    report.other_hazard = other_hazard
+    report.building = building
+    report.floor = floor
+    report.room = room
+    report.specific_location = specific_location
+    report.description = description
+    report.priority = _priority_from_hazards(hazard_types)
+    if photo:
+        report.photo = photo
+    report.save()
+    _append_history(
+        report,
+        old_status,
+        IncidentReport.Status.PENDING,
+        request.user,
+        'Guard updated report details',
+    )
+    return JsonResponse(_serialize(report, request))
+
+
+@csrf_exempt
 @require_http_methods(['GET', 'HEAD'])
 def report_detail(request, report_id: str):
     if not request.user.is_authenticated:

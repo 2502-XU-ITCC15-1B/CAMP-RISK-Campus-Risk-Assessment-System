@@ -12,6 +12,8 @@ interface Report {
   date: string;
   hazard: string;
   status: string;
+  /** Machine status from API (`pending`, `assessed`, …). */
+  statusCode: string;
   hazardTypes: string[];
   description: string;
   submittedBy: string;
@@ -31,6 +33,7 @@ function mapApiReport(r: ApiReport): Report {
     date: r.date,
     hazard: r.hazard,
     status: r.status,
+    statusCode: r.status_code,
     hazardTypes: r.hazard_types,
     description: r.description,
     submittedBy: r.submitted_by,
@@ -263,13 +266,24 @@ export function GuardDashboard() {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedReport(report)}
-                          className="text-[var(--xu-blue)] text-sm hover:underline"
-                        >
-                          View
-                        </button>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReport(report)}
+                            className="text-[var(--xu-blue)] text-sm hover:underline"
+                          >
+                            View
+                          </button>
+                          {report.statusCode === 'pending' ? (
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/guard/report/edit/${encodeURIComponent(report.id)}`)}
+                              className="text-sm text-slate-700 underline decoration-slate-400 hover:text-slate-900"
+                            >
+                              Update report
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -416,7 +430,20 @@ export function GuardDashboard() {
               ) : null}
             </div>
 
-            <div className="border-t border-slate-200 px-6 py-4 flex justify-end">
+            <div className="border-t border-slate-200 px-6 py-4 flex flex-wrap items-center justify-end gap-3">
+              {selectedReport.statusCode === 'pending' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = selectedReport.id;
+                    setSelectedReport(null);
+                    navigate(`/guard/report/edit/${encodeURIComponent(id)}`);
+                  }}
+                  className="px-4 py-2 bg-[var(--xu-blue)] text-white rounded-md hover:bg-blue-700 transition-colors"
+                >
+                  Update report
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setSelectedReport(null)}
