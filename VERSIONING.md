@@ -1,6 +1,6 @@
-# Semantic Versioning Policy
+# Semantic Versioning Guide
 
-This project follows [Semantic Versioning 2.0.0](https://semver.org/) using the `major.minor.patch` format.
+[Semantic Versioning 2.0.0](https://semver.org/) using the `major.minor.patch` format.
 
 ## Versioning Rules
 
