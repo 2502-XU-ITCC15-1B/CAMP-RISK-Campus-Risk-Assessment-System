@@ -1,0 +1,31 @@
+# Render Blueprint: https://render.com/docs/infrastructure-as-code
+# New → Blueprint → connect repo. Edit `databaseName` / `name` to match your team.
+# After deploy: set CORS_ALLOWED_ORIGINS + CSRF_TRUSTED_ORIGINS to your Static Site https URL (comma-separated if several).
+
+databases:
+  - name: camprisk-postgres
+    databaseName: camprisk_beta_db
+    plan: free
+
+services:
+  - type: web
+    name: camp-risk-api
+    runtime: docker
+    region: singapore
+    plan: free
+    branch: main
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /api/health/
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: camprisk-postgres
+          property: connectionString
+      # Example: https://your-app.onrender.com  (add your real Static Site / frontend URL)
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: CSRF_TRUSTED_ORIGINS
+        sync: false

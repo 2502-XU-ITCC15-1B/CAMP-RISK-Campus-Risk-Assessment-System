@@ -2,21 +2,21 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PORT=8000
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+# Optional: only if pip needs to compile wheels (psycopg/Pillow usually ship binary wheels)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    default-libmysqlclient-dev \
-    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-
-RUN pip install --no-cache-dir -r requirements.txt mysqlclient==2.2.4
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"]
+# Render sets PORT at runtime. Migrate + collectstatic + Gunicorn.
+CMD ["sh", "-c", "python manage.py collectstatic --noinput && python manage.py migrate --noinput && exec gunicorn camp_risk.wsgi:application --bind 0.0.0.0:${PORT} --workers 2 --threads 4"]

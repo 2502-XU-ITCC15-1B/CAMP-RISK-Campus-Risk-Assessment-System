@@ -23,9 +23,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = os.environ.get('DEBUG', '').lower() in ('1', 'true', 'yes')
 
-ALLOWED_HOSTS = ['.onrender.com']
+_allowed_hosts = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,.onrender.com')
+ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
 
 
 # Application definition
@@ -44,6 +45,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -75,9 +77,18 @@ WSGI_APPLICATION = 'camp_risk.wsgi.application'
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
+#
+# Order: DATABASE_URL (Render Postgres) → MySQL (Docker) → SQLite (local).
+if os.environ.get('DATABASE_URL'):
+    import dj_database_url
 
-# MySQL when DB_HOST is set (Docker). Otherwise SQLite for local development.
-if os.environ.get('DB_HOST'):
+    DATABASES = {
+        'default': dj_database_url.config(
+            conn_max_age=600,
+            ssl_require=True,
+        )
+    }
+elif os.environ.get('DB_HOST'):
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.mysql',
@@ -105,6 +116,11 @@ CORS_ALLOWED_ORIGINS = [
     'http://127.0.0.1:4173',
     'http://localhost:4173',
 ]
+_extra_cors = os.environ.get('CORS_ALLOWED_ORIGINS', '')
+if _extra_cors:
+    CORS_ALLOWED_ORIGINS.extend(
+        [o.strip() for o in _extra_cors.split(',') if o.strip()]
+    )
 CORS_ALLOW_CREDENTIALS = True
 
 
@@ -143,6 +159,15 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/6.0/ref/settings/#default-auto-field
@@ -152,7 +177,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Session cookies work with Vite dev proxy (same-site browser context).
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SECURE = False  # set True behind HTTPS in production
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 
 CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:5173',
@@ -160,3 +186,10 @@ CSRF_TRUSTED_ORIGINS = [
     'http://127.0.0.1:4173',
     'http://localhost:4173',
 ]
+_extra_csrf = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+if _extra_csrf:
+    CSRF_TRUSTED_ORIGINS.extend(
+        [o.strip() for o in _extra_csrf.split(',') if o.strip()]
+    )
+
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

@@ -10,6 +10,7 @@ dist/
 
 # Django user uploads (keep local only)
 backend/media/
+backend/staticfiles/
 
 # Python
 __pycache__/
