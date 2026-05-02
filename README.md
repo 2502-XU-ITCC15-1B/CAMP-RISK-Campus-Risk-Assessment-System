@@ -20,17 +20,15 @@ Fixed **SSIO bootstrap account** (code): username `Admin`, password `Admin@123`,
 
 > **Tester access:** Provide the static URL credentials test accounts only; rotate `SECRET_KEY` / DB if you recycle the environment.
 
-## Related documentation
+## Infrastructure
 
-| Document | Purpose |
-|----------|---------|
-| [docs/DEPLOYMENT_AND_TESTING.md](docs/DEPLOYMENT_AND_TESTING.md) | Merge history snapshots, release notes, evidence checklist, reflection — export to **`Group#_DeployStage.pdf`** |
-| [docs/ACCEPTANCE_TEST_PLAN.md](docs/ACCEPTANCE_TEST_PLAN.md) | Alpha vs beta scopes, **test cases**, systematic feedback (**Execute / Re-execute**) |
+| File | Purpose |
+|------|---------|
 | [render.yaml](render.yaml) | Blueprint sketch for API + Postgres (adjust names/regions) |
 
 ## Git releases (course / acceptance)
 
-Annotated tags (**alpha**, **beta**) mark internal vs external readiness. See GitHub → **Releases** (or Tags) + `docs/DEPLOYMENT_AND_TESTING.md` for notes.
+Annotated tags (**alpha**, **beta**) mark internal vs external readiness. See GitHub → **Releases** (or Tags) for notes.
 
 ```bash
 git tag -n9 alpha
@@ -64,7 +62,7 @@ npm run build:app
 
 ## Known limitations (staging)
 
-- Report **photos** use `/media/` URLs; on split origins, images rely on cookie/session/browser behavior unless media is absolute or proxied — see ACCEPTANCE_TEST_PLAN risk items.
+- Report **photos** use `/media/` URLs; on split origins, images rely on cookie/session/browser behavior unless media is absolute or proxied (the app uses absolute media URLs when configured).
 - **Bearer tokens** improve API auth when cookies are flaky across origins. Tokens are stored in **`localStorage`** so all tabs share them (older builds used **per-tab `sessionStorage`**, which could cause **“Authentication required”** in one tab). **Avoid regenerating Render `SECRET_KEY`** without expecting everyone to **sign out and sign in again** (old tokens stop working).
 
 ## Repo / ownership
