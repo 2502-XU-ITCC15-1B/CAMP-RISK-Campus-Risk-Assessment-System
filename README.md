@@ -44,11 +44,11 @@ In a **Blueprint** (`render.yaml`), the same behavior is `routes:` with `type: r
 
 ## Git releases (course / acceptance)
 
-Annotated tags (**alpha**, **beta**) mark internal vs external readiness. See GitHub → **Releases** (or Tags) for notes.
+Prereleases follow **semver** (`vX.Y.Z-alpha.N`, `vX.Y.Z-beta.N`); see [VERSIONING.md](VERSIONING.md). Legacy plain names **`alpha`** / **`beta`** still exist for older milestones—prefer **`v…`** tags for new work.
 
 ```bash
-git tag -n9 alpha
-git tag -n9 beta
+git tag -l "v0.*"
+git tag -n9 v0.1.0-beta.2
 ```
 
 ## Local development
