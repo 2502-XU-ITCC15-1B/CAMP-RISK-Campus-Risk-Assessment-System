@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
-import { X, UserPlus, Trash2 } from 'lucide-react';
+import { X, UserPlus, Trash2, Eye, EyeOff } from 'lucide-react';
 import { xuLogo } from '../constants/xuLogo';
+import { NotificationBell } from '../components/NotificationBell';
 import { createPersonnel, deletePersonnel, fetchPersonnel, type ApiPersonnelRow } from '../lib/api';
 
 export function ManagePersonnel() {
@@ -15,6 +16,7 @@ export function ManagePersonnel() {
   const [listError, setListError] = useState('');
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [formData, setFormData] = useState({
     username: '',
@@ -63,6 +65,7 @@ export function ManagePersonnel() {
         password: formData.password,
       });
       setPersonnel((prev) => [...prev, row].sort((a, b) => a.username.localeCompare(b.username)));
+      setShowPassword(false);
       setShowAddModal(false);
       setFormData({ username: '', fullName: '', email: '', password: '' });
     } catch (err) {
@@ -95,7 +98,8 @@ export function ManagePersonnel() {
               <p className="text-sm text-slate-600">Risk Management System</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            <NotificationBell role="admin" />
             <button
               onClick={() => navigate('/admin/dashboard')}
               className="px-4 py-2 text-sm border border-slate-300 rounded-md hover:bg-slate-100 transition-colors"
@@ -126,6 +130,7 @@ export function ManagePersonnel() {
             <button
               onClick={() => {
                 setFormError('');
+                setShowPassword(false);
                 setShowAddModal(true);
               }}
               className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-[var(--xu-blue)] text-white rounded-md hover:bg-blue-700 transition-colors"
@@ -214,10 +219,13 @@ export function ManagePersonnel() {
             <div className="flex items-center justify-between p-6 border-b border-slate-200">
               <h3 className="text-xl text-slate-800">Add Security Personnel</h3>
               <button
-                onClick={() => setShowAddModal(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
-                <X className="h-6 w-6" />
+              onClick={() => {
+                setShowPassword(false);
+                setShowAddModal(false);
+              }}
+              className="text-slate-400 hover:text-slate-600"
+            >
+              <X className="h-6 w-6" />
               </button>
             </div>
             <form onSubmit={handleAddPersonnel} className="p-6 space-y-4">
@@ -259,19 +267,34 @@ export function ManagePersonnel() {
               </div>
               <div>
                 <label className="block text-sm text-slate-700 mb-2">Password</label>
-                <input
-                  type="password"
-                  required
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)]"
-                  placeholder="••••••••"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    autoComplete="new-password"
+                    className="w-full px-3 py-2 pr-11 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)]"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    aria-pressed={showPassword}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[var(--xu-blue)]"
+                  >
+                    {showPassword ? <EyeOff className="h-5 w-5" aria-hidden /> : <Eye className="h-5 w-5" aria-hidden />}
+                  </button>
+                </div>
               </div>
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
+                  onClick={() => {
+                    setShowPassword(false);
+                    setShowAddModal(false);
+                  }}
                   className="flex-1 px-4 py-2 border border-slate-300 text-slate-700 rounded-md hover:bg-slate-100 transition-colors"
                 >
                   Cancel

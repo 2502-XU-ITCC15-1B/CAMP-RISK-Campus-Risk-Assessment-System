@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useNavigate, useLocation } from 'react-router';
+import { useNavigate, useLocation, useSearchParams } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { Clock, MapPin, FileText, Shield, X } from 'lucide-react';
 import { xuLogo } from '../constants/xuLogo';
-import { fetchReport, fetchReports, type ApiReport } from '../lib/api';
+import { NotificationBell } from '../components/NotificationBell';
+import { ensureMediaSrc, fetchReport, fetchReports, type ApiReport } from '../lib/api';
 
 interface Report {
   id: string;
@@ -49,6 +50,7 @@ function mapApiReport(r: ApiReport): Report {
 export function GuardDashboard() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { user, logout } = useAuth();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -103,6 +105,13 @@ export function GuardDashboard() {
     void loadReports();
   }, [loadReports, location.pathname]);
 
+  useEffect(() => {
+    const rid = searchParams.get('report')?.trim();
+    if (!rid || reports.length === 0) return;
+    const found = reports.find((r) => r.id === rid);
+    if (found) setSelectedReport(found);
+  }, [searchParams, reports]);
+
   const handleLogout = () => {
     logout();
     navigate('/');
@@ -121,13 +130,16 @@ export function GuardDashboard() {
               <p className="text-sm text-slate-600">Risk Management System</p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="px-4 py-2 text-sm border border-slate-300 rounded-md hover:bg-slate-100 transition-colors"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-3">
+            <NotificationBell role="guard" />
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm border border-slate-300 rounded-md hover:bg-slate-100 transition-colors"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 
@@ -336,11 +348,11 @@ export function GuardDashboard() {
                 <p className="text-slate-800">{selectedReport.hazard}</p>
               </div>
 
-              {selectedReport.photoUrl ? (
+              {ensureMediaSrc(selectedReport.photoUrl ?? null) ? (
                 <div>
                   <p className="text-sm text-slate-600 mb-2">Photo</p>
                   <img
-                    src={selectedReport.photoUrl}
+                    src={ensureMediaSrc(selectedReport.photoUrl)!}
                     alt="Report attachment"
                     className="max-h-48 rounded-md border border-slate-200"
                   />

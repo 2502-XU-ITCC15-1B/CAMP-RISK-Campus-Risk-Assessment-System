@@ -1,8 +1,19 @@
 from django.urls import path
 
-from . import views
+from . import notifications_views, views
 
 urlpatterns = [
+    path('notifications/', notifications_views.notifications_list, name='notifications-list'),
+    path(
+        'notifications/read-all/',
+        notifications_views.notifications_mark_all_read,
+        name='notifications-read-all',
+    ),
+    path(
+        'notifications/<int:notification_id>/read/',
+        notifications_views.notifications_mark_read,
+        name='notifications-read-one',
+    ),
     path('dashboard/summary/', views.dashboard_summary, name='dashboard-summary'),
     path('reports/', views.report_list_create, name='report-list-create'),
     path('reports/<str:report_id>/update/', views.report_guard_update, name='report-guard-update'),

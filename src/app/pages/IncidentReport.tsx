@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { X, Upload } from 'lucide-react';
 import { xuLogo } from '../constants/xuLogo';
 import { useAuth } from '../context/AuthContext';
-import { fetchReport, submitIncidentReport, updateGuardIncidentReport } from '../lib/api';
+import { ensureMediaSrc, fetchReport, submitIncidentReport, updateGuardIncidentReport } from '../lib/api';
 
 export function IncidentReport() {
   const navigate = useNavigate();
@@ -23,6 +23,7 @@ export function IncidentReport() {
   const [loadError, setLoadError] = useState('');
   const [initialLoading, setInitialLoading] = useState(isEdit);
   const [existingPhotoUrl, setExistingPhotoUrl] = useState<string | null>(null);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
 
   const hazardOptions = [
     'Earthquake Hazard',
@@ -90,6 +91,16 @@ export function IncidentReport() {
       cancelled = true;
     };
   }, [isEdit, reportId]);
+
+  useEffect(() => {
+    if (!photo) {
+      setPhotoPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(photo);
+    setPhotoPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photo]);
 
   const toggleHazard = (hazard: string) => {
     if (hazardTypes.includes(hazard)) {
@@ -247,6 +258,15 @@ export function IncidentReport() {
                       ) : null}
                     </label>
                   </div>
+                  {(photoPreviewUrl || ensureMediaSrc(existingPhotoUrl)) && (
+                    <div className="mt-4 flex justify-center">
+                      <img
+                        src={photoPreviewUrl || ensureMediaSrc(existingPhotoUrl)!}
+                        alt={photo ? 'New upload preview' : 'Current report photo'}
+                        className="max-h-56 rounded-md border border-slate-200 object-contain"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 <div>

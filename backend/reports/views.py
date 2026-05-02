@@ -21,6 +21,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from .models import IncidentReport, InformationRequest, ReportStatusHistory, RiskAssessment
+from .notification_helpers import notify_admins, notify_submitting_guard
 
 
 def _user_role(user) -> Optional[str]:
@@ -88,6 +89,7 @@ def _serialize_assessment(ra: RiskAssessment) -> dict:
         'ppe_controls': ra.ppe_controls,
         'residual_risk': ra.residual_risk,
         'mitigation_actions': ra.mitigation_actions or [],
+        'hazard_risk_breakdown': ra.hazard_risk_breakdown or [],
         'updated_at': ra.updated_at.isoformat(),
     }
 
@@ -114,7 +116,16 @@ def _serialize(r: IncidentReport, request) -> dict:
         created = timezone.make_aware(created, timezone.get_current_timezone())
     local = timezone.localtime(created)
     time_str = local.strftime('%I:%M %p').lstrip('0')
-    photo_url = r.photo.url if r.photo else None
+    photo_url = None
+    if r.photo:
+        rel = r.photo.url
+        if request is not None and isinstance(rel, str) and rel.startswith('/'):
+            try:
+                photo_url = request.build_absolute_uri(rel)
+            except Exception:  # noqa: BLE001
+                photo_url = rel
+        else:
+            photo_url = rel
     return {
         'id': r.public_id(),
         'hazard': r.hazard_summary(),
@@ -252,6 +263,13 @@ def report_list_create(request):
         report.photo = photo
     report.save()
     _append_history(report, '', IncidentReport.Status.PENDING, request.user, 'Report created')
+    if _user_role(request.user) == UserProfile.Role.GUARD:
+        notify_admins(
+            report=report,
+            kind='incident_submitted',
+            title=f'New incident {report.public_id()}',
+            body=f'{submitted_by_name} reported: {report.hazard_summary()}.',
+        )
     return JsonResponse(_serialize(report, request), status=201)
 
 
@@ -327,6 +345,12 @@ def report_guard_update(request, report_id: str):
         request.user,
         'Guard updated report details',
     )
+    notify_admins(
+        report=report,
+        kind='incident_updated',
+        title=f'Guard updated {report.public_id()}',
+        body=f'{report.submitted_by_name} revised a pending incident report.',
+    )
     return JsonResponse(_serialize(report, request))
 
 
@@ -387,18 +411,75 @@ def report_assessment_upsert(request, report_id: str):
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
 
-    likelihood = body.get('likelihood')
-    severity = body.get('severity')
-    try:
-        li = int(likelihood)
-        se = int(severity)
-    except (TypeError, ValueError):
-        return JsonResponse({'error': 'likelihood and severity must be integers 1-5'}, status=400)
-    if not (1 <= li <= 5 and 1 <= se <= 5):
-        return JsonResponse({'error': 'likelihood and severity must be between 1 and 5'}, status=400)
+    mitigation_assigned_to = (body.get('mitigation_assigned_to') or body.get('assigned_to') or '').strip()[
+        :255
+    ]
 
-    risk_score = li * se
-    risk_level = _risk_level_from_score(risk_score)
+    types = list(report.hazard_types or [])
+    hazard_breakdown_raw = body.get('hazard_risk_breakdown')
+
+    li: int
+    se: int
+    risk_score: int
+    risk_level: str
+    cleaned_breakdown: list = []
+
+    if types:
+        if not isinstance(hazard_breakdown_raw, list) or len(hazard_breakdown_raw) != len(types):
+            return JsonResponse(
+                {
+                    'error': (
+                        'hazard_risk_breakdown must contain one entry per reported hazard '
+                        '(same order as the incident)'
+                    ),
+                },
+                status=400,
+            )
+        scored: list[tuple[int, int, int]] = []
+        for i, ht in enumerate(types):
+            entry = hazard_breakdown_raw[i]
+            if not isinstance(entry, dict):
+                return JsonResponse({'error': 'Each hazard breakdown must be an object'}, status=400)
+            spec = (entry.get('specific_risk') or '').strip()
+            if not spec:
+                return JsonResponse({'error': f'Enter or select a specific risk for hazard: {ht}'}, status=400)
+            try:
+                hli = int(entry.get('likelihood'))
+                hse = int(entry.get('severity'))
+            except (TypeError, ValueError):
+                return JsonResponse(
+                    {'error': 'Each hazard requires likelihood and severity integers 1-5'}, status=400
+                )
+            if not (1 <= hli <= 5 and 1 <= hse <= 5):
+                return JsonResponse(
+                    {'error': 'Per-hazard likelihood and severity must be between 1 and 5'}, status=400
+                )
+            aff = (entry.get('affected_area') or '').strip()
+            cleaned_breakdown.append(
+                {
+                    'hazard': ht,
+                    'specific_risk': spec[:500],
+                    'affected_area': aff[:500],
+                    'likelihood': hli,
+                    'severity': hse,
+                }
+            )
+            scored.append((hli * hse, hli, hse))
+        risk_score = max(scored, key=lambda t: t[0])[0]
+        _, li, se = max(scored, key=lambda t: t[0])
+        risk_level = _risk_level_from_score(risk_score)
+    else:
+        likelihood = body.get('likelihood')
+        severity = body.get('severity')
+        try:
+            li = int(likelihood)
+            se = int(severity)
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'likelihood and severity must be integers 1-5'}, status=400)
+        if not (1 <= li <= 5 and 1 <= se <= 5):
+            return JsonResponse({'error': 'likelihood and severity must be between 1 and 5'}, status=400)
+        risk_score = li * se
+        risk_level = _risk_level_from_score(risk_score)
     risk_classification = (body.get('risk_classification') or '').strip()
     engineering = (body.get('engineering_controls') or '').strip()
     administrative = (body.get('administrative_controls') or '').strip()
@@ -455,29 +536,37 @@ def report_assessment_upsert(request, report_id: str):
             for k, v in old_action_rows[i].items():
                 if k not in ('description', 'due_date'):
                     merged[k] = v
+        if mitigation_assigned_to and 'assigned_to' not in merged:
+            merged['assigned_to'] = mitigation_assigned_to
         merged_actions.append(merged)
     mitigation_actions = merged_actions
 
     old_status = report.status
-    RiskAssessment.objects.update_or_create(
-        report=report,
-        defaults={
-            'risk_classification': risk_classification,
-            'likelihood': li,
-            'severity': se,
-            'risk_score': risk_score,
-            'risk_level': risk_level,
-            'engineering_controls': engineering,
-            'administrative_controls': administrative,
-            'ppe_controls': ppe,
-            'residual_risk': residual,
-            'mitigation_actions': mitigation_actions,
-            'assessed_by': request.user,
-        },
-    )
+    ra_defaults = {
+        'risk_classification': risk_classification,
+        'likelihood': li,
+        'severity': se,
+        'risk_score': risk_score,
+        'risk_level': risk_level,
+        'engineering_controls': engineering,
+        'administrative_controls': administrative,
+        'ppe_controls': ppe,
+        'residual_risk': residual,
+        'mitigation_actions': mitigation_actions,
+        'assessed_by': request.user,
+    }
+    ra_defaults['hazard_risk_breakdown'] = cleaned_breakdown if types else []
+    RiskAssessment.objects.update_or_create(report=report, defaults=ra_defaults)
     report.status = IncidentReport.Status.ASSESSED
     report.save(update_fields=['status'])
     _append_history(report, old_status, IncidentReport.Status.ASSESSED, request.user, 'Risk assessment submitted')
+
+    notify_submitting_guard(
+        report,
+        kind='risk_assessed',
+        title=f'Assessment completed ({report.public_id()})',
+        body='SSIO submitted a risk assessment on your incident report.',
+    )
 
     ra = report.risk_assessment
     return JsonResponse(
@@ -538,6 +627,12 @@ def report_request_information(request, report_id: str):
         report.status,
         request.user,
         note=f'Information request #{ir.pk} sent to {submitter}',
+    )
+    notify_submitting_guard(
+        report,
+        kind='information_requested',
+        title=f'More info requested ({report.public_id()})',
+        body='SSIO requested additional details. Open your dashboard and view this report to read the questions.',
     )
     return JsonResponse(
         {
@@ -629,6 +724,12 @@ def report_extend_deadline(request, report_id: str):
         request.user,
         note=f'Deadline extended for mitigation {ref} to {new_due}',
     )
+    notify_submitting_guard(
+        report,
+        kind='deadline_extended',
+        title=f'Mitigation deadline updated ({report.public_id()})',
+        body=f'SSIO adjusted a mitigation due date ({ref}).',
+    )
     return JsonResponse(
         {
             'ok': True,
@@ -711,6 +812,13 @@ def report_mitigation_update(request, report_id: str):
         report.status = IncidentReport.Status.IN_PROGRESS
         report.save(update_fields=['status'])
         _append_history(report, old_status, IncidentReport.Status.IN_PROGRESS, request.user, 'Mitigation tracking updated')
+
+    notify_submitting_guard(
+        report,
+        kind='mitigation_updated',
+        title=f'Mitigation plan updated ({report.public_id()})',
+        body='SSIO updated mitigation tracking on your report.',
+    )
 
     return JsonResponse(
         {
@@ -797,6 +905,12 @@ def mitigation_extend_deadline(request, action_ref: str):
         request.user,
         note=f'Deadline extended for mitigation {ref} to {new_due}',
     )
+    notify_submitting_guard(
+        report,
+        kind='deadline_extended',
+        title=f'Mitigation deadline extended ({report.public_id()})',
+        body=f'Deadline changed for mitigation action {ref}.',
+    )
     return JsonResponse(
         {
             'ok': True,
@@ -876,6 +990,13 @@ def mitigation_tracking_update(request, report_id: str):
         report.save(update_fields=['status'])
         _append_history(report, old_status, IncidentReport.Status.IN_PROGRESS, request.user, 'Mitigation tracking updated')
 
+    notify_submitting_guard(
+        report,
+        kind='mitigation_updated',
+        title=f'Mitigation tracking saved ({report.public_id()})',
+        body='SSIO saved updates to mitigation on your assessed report.',
+    )
+
     return JsonResponse(
         {
             'ok': True,
@@ -934,6 +1055,13 @@ def mitigation_complete_action(request, action_ref: str):
             request.user,
             note=f'Mitigation action {action_ref} marked completed',
         )
+
+    notify_submitting_guard(
+        report,
+        kind='mitigation_completed',
+        title=f'Mitigation completed ({report.public_id()})',
+        body=f'SSIO marked {action_ref} complete.',
+    )
 
     return JsonResponse(
         {

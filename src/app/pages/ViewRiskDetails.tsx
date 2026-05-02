@@ -5,6 +5,7 @@ import { AlertCircle, ArrowLeft, FileDown } from 'lucide-react';
 import { xuLogo } from '../constants/xuLogo';
 import {
   downloadAssessmentPdf,
+  ensureMediaSrc,
   fetchReport,
   openAssessmentPdf,
   type ApiReport,
@@ -297,6 +298,52 @@ export function ViewRiskDetails() {
                 </div>
               </div>
             </div>
+
+            {ensureMediaSrc(report.photo_url) ? (
+              <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8">
+                <h3 className="text-lg text-slate-800 mb-4">Incident photo</h3>
+                <img
+                  src={ensureMediaSrc(report.photo_url)!}
+                  alt="Incident attachment"
+                  className="max-h-72 rounded-md border border-slate-200 object-contain"
+                />
+              </div>
+            ) : null}
+
+            {assessment.hazard_risk_breakdown && assessment.hazard_risk_breakdown.length > 0 ? (
+              <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8 overflow-x-auto">
+                <h3 className="text-lg text-slate-800 mb-4">Per-hazard risk breakdown</h3>
+                <table className="min-w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
+                  <thead className="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th className="text-left px-3 py-2 font-medium text-slate-700">Hazard</th>
+                      <th className="text-left px-3 py-2 font-medium text-slate-700">Specific risk</th>
+                      <th className="text-left px-3 py-2 font-medium text-slate-700">Affected area</th>
+                      <th className="text-left px-3 py-2 font-medium text-slate-700">L × S</th>
+                      <th className="text-left px-3 py-2 font-medium text-slate-700">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {assessment.hazard_risk_breakdown.map((row, i) => (
+                      <tr key={i} className="bg-white">
+                        <td className="px-3 py-2 text-slate-800 align-top">
+                          {row.hazard ?? (report.hazard_types?.[i] ?? '—')}
+                        </td>
+                        <td className="px-3 py-2 text-slate-700 align-top">{row.specific_risk || '—'}</td>
+                        <td className="px-3 py-2 text-slate-600 align-top">{row.affected_area ?? '—'}</td>
+                        <td className="px-3 py-2 text-slate-700 align-top whitespace-nowrap">
+                          {row.likelihood} ({likelihoodLabel(row.likelihood)}) × {row.severity} (
+                          {severityLabel(row.severity)})
+                        </td>
+                        <td className="px-3 py-2 text-slate-800 font-medium align-top">
+                          {row.likelihood * row.severity}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
 
             <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8">
               <h3 className="text-lg text-slate-800 mb-4">Control measure</h3>

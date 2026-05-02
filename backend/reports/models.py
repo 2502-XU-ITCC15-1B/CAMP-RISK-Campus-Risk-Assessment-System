@@ -69,6 +69,8 @@ class RiskAssessment(models.Model):
     ppe_controls = models.TextField(blank=True)
     residual_risk = models.TextField(blank=True)
     mitigation_actions = models.JSONField(default=list)
+    # One entry per IncidentReport.hazard_types item (aligned by order): likelihood/severity per hazard.
+    hazard_risk_breakdown = models.JSONField(default=list, blank=True)
     assessed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -103,6 +105,28 @@ class InformationRequest(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class Notification(models.Model):
+    """In-app notification for admins and guards (report workflow updates)."""
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='camp_risk_notifications',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    report_public_id = models.CharField(max_length=48, blank=True, db_index=True)
+    kind = models.CharField(max_length=48, db_index=True)
+    title = models.CharField(max_length=255)
+    body = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['recipient', '-created_at']),
+        ]
 
 
 class ReportStatusHistory(models.Model):

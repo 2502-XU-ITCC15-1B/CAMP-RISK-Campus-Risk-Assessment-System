@@ -77,6 +77,17 @@ export function apiUrl(path: string): string {
   return path.startsWith('/') ? path : `/${path}`;
 }
 
+/** Ensure incident images load when the API returns `/media/...` and the SPA is on another host. */
+export function ensureMediaSrc(url: string | null | undefined): string | null {
+  if (url == null || typeof url !== 'string') return null;
+  const u = url.trim();
+  if (!u) return null;
+  if (/^(https?:|blob:|data:)/i.test(u)) return u;
+  const prefix = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '');
+  if (u.startsWith('/') && prefix) return `${prefix}${u}`;
+  return u;
+}
+
 export function assessmentPdfUrl(reportId: string): string {
   return apiUrl(`/api/reports/${encodeURIComponent(reportId)}/assessment-pdf/`);
 }
@@ -151,6 +162,14 @@ export async function apiMe(): Promise<ApiUser | null> {
   return isValidApiUser(u) ? u : null;
 }
 
+export interface ApiHazardRiskBreakdownRow {
+  hazard?: string;
+  specific_risk: string;
+  affected_area?: string;
+  likelihood: number;
+  severity: number;
+}
+
 export interface ApiRiskAssessmentDetail {
   risk_classification: string;
   likelihood: number;
@@ -161,7 +180,8 @@ export interface ApiRiskAssessmentDetail {
   administrative_controls: string;
   ppe_controls: string;
   residual_risk: string;
-  mitigation_actions: Array<{ description?: string; due_date?: string; dueDate?: string }>;
+  mitigation_actions: Array<{ description?: string; due_date?: string; dueDate?: string; assigned_to?: string }>;
+  hazard_risk_breakdown?: ApiHazardRiskBreakdownRow[];
   updated_at: string;
 }
 
@@ -402,13 +422,21 @@ export async function submitRiskAssessment(
   reportId: string,
   payload: {
     risk_classification: string;
-    likelihood: number;
-    severity: number;
     engineering_controls: string;
     administrative_controls: string;
     ppe_controls: string;
     residual_risk: string;
     mitigation_actions: Array<{ description: string; due_date: string }>;
+    mitigation_assigned_to?: string;
+    likelihood?: number;
+    severity?: number;
+    hazard_risk_breakdown?: Array<{
+      hazard: string;
+      specific_risk: string;
+      affected_area: string;
+      likelihood: number;
+      severity: number;
+    }>;
   },
 ): Promise<{ ok: boolean; report_id: string; risk_score: number; risk_level: string; status_code: string }> {
   const res = await authFetch(apiUrl(`/api/reports/${encodeURIComponent(reportId)}/assessment/`), {
@@ -597,4 +625,50 @@ export async function updateMitigationTracking(
     throw new Error(typeof body.error === 'string' ? body.error : 'Could not save mitigation');
   }
   return body as { ok: boolean; report_id: string; message: string; status_code: string };
+}
+
+export interface ApiNotificationRow {
+  id: number;
+  created_at: string;
+  read: boolean;
+  report_id: string;
+  kind: string;
+  title: string;
+  body: string;
+}
+
+export async function fetchNotifications(): Promise<{ notifications: ApiNotificationRow[]; unread_count: number }> {
+  const res = await authFetch(apiUrl('/api/notifications/'), {});
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    throw new Error(apiErrorHint(res, body, 'Could not load notifications'));
+  }
+  const rows = body.notifications;
+  const notifications = Array.isArray(rows) ? (rows as ApiNotificationRow[]) : [];
+  const unread = typeof body.unread_count === 'number' ? body.unread_count : 0;
+  return { notifications, unread_count: unread };
+}
+
+export async function markNotificationRead(id: number): Promise<void> {
+  const res = await authFetch(apiUrl(`/api/notifications/${id}/read/`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    throw new Error(apiErrorHint(res, body, 'Could not update notification'));
+  }
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  const res = await authFetch(apiUrl('/api/notifications/read-all/'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+  });
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) {
+    throw new Error(apiErrorHint(res, body, 'Could not mark notifications read'));
+  }
 }

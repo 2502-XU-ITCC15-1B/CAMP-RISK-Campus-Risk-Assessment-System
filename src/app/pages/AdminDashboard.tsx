@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router';
 import { jsPDF } from 'jspdf';
 import { useAuth } from '../context/AuthContext';
 import { AlertCircle, Clock, X, Users } from 'lucide-react';
+import { NotificationBell } from '../components/NotificationBell';
 import { xuLogo } from '../constants/xuLogo';
 import {
   completeMitigationAction,
@@ -602,6 +603,7 @@ export function AdminDashboard() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <NotificationBell role="admin" />
             <button
               onClick={() => navigate('/admin/manage-personnel')}
               className="flex items-center gap-2 px-4 py-2 text-sm bg-[var(--xu-blue)] text-white rounded-md hover:bg-blue-700 transition-colors"

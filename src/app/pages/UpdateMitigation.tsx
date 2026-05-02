@@ -3,9 +3,10 @@ import { useNavigate, useParams } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { ArrowLeft, Save } from 'lucide-react';
 import { xuLogo } from '../constants/xuLogo';
+import { MITIGATION_TEAM_OPTIONS } from '../constants/mitigationTeams';
 import { fetchReport, updateMitigationTracking, type ApiReport } from '../lib/api';
 
-const TEAM_OPTIONS = ['Maintenance Team', 'Facilities Team', 'Safety Team', 'IT Team', 'Security Team'] as const;
+const TEAM_OPTIONS = MITIGATION_TEAM_OPTIONS;
 
 export function UpdateMitigation() {
   const navigate = useNavigate();
