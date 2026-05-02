@@ -9,7 +9,7 @@ Hosting is commonly split on **Render** (or similar):
 | Service | Role | You must set |
 |--------|------|----------------|
 | **Web Service** | Django API (Gunicorn) | `SECRET_KEY`, `DATABASE_URL` (if Postgres), `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS`; avoid `DEBUG` in production |
-| **Static Site** | Built SPA (`npm run build:app`, publish **`dist/`**) | **`VITE_API_URL`** = full `https://` URL of the API (**no trailing path**) |
+| **Static Site** | Built SPA (`npm run build:app`, publish **`dist/`**) | **`VITE_API_URL`** = full `https://` URL of the API (**no trailing path**); optional **`VITE_FEEDBACK_URL`** = public Google Form URL (shows “Beta feedback form” on login) |
 
 Replace with your deployed URLs:
 
@@ -65,7 +65,7 @@ npm run build:app
 ## Known limitations (staging)
 
 - Report **photos** use `/media/` URLs; on split origins, images rely on cookie/session/browser behavior unless media is absolute or proxied — see ACCEPTANCE_TEST_PLAN risk items.
-- **Bearer tokens** improve API auth when cookies are flaky across origins; testers should **refresh after deploy** and sign in again.
+- **Bearer tokens** improve API auth when cookies are flaky across origins. Tokens are stored in **`localStorage`** so all tabs share them (older builds used **per-tab `sessionStorage`**, which could cause **“Authentication required”** in one tab). **Avoid regenerating Render `SECRET_KEY`** without expecting everyone to **sign out and sign in again** (old tokens stop working).
 
 ## Repo / ownership
 

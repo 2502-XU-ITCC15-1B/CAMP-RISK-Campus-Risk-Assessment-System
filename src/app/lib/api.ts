@@ -4,31 +4,60 @@
  */
 const API_TOKEN_KEY = 'camp_risk_api_token';
 
-export function clearApiToken(): void {
+/** Prefer localStorage so the token is shared across tabs; migrate legacy sessionStorage. */
+function getStoredApiToken(): string | null {
+  if (typeof window === 'undefined') return null;
   try {
-    sessionStorage.removeItem(API_TOKEN_KEY);
+    const fromLocal = localStorage.getItem(API_TOKEN_KEY);
+    if (fromLocal) return fromLocal;
+    const legacy = sessionStorage.getItem(API_TOKEN_KEY);
+    if (legacy) {
+      localStorage.setItem(API_TOKEN_KEY, legacy);
+      sessionStorage.removeItem(API_TOKEN_KEY);
+      return legacy;
+    }
   } catch {
     /* private mode etc. */
+  }
+  return null;
+}
+
+export function clearApiToken(): void {
+  try {
+    localStorage.removeItem(API_TOKEN_KEY);
+    sessionStorage.removeItem(API_TOKEN_KEY);
+  } catch {
+    /* ignore */
   }
 }
 
 function setApiToken(token: string): void {
   try {
-    sessionStorage.setItem(API_TOKEN_KEY, token);
+    localStorage.setItem(API_TOKEN_KEY, token);
+    sessionStorage.removeItem(API_TOKEN_KEY);
   } catch {
-    /* ignore */
+    try {
+      sessionStorage.setItem(API_TOKEN_KEY, token);
+    } catch {
+      /* ignore */
+    }
   }
+}
+
+/** Human hint when Bearer/session is gone (deploy, SECRET_KEY rotation, stale tab state). */
+function apiErrorHint(res: Response, body: Record<string, unknown>, fallback: string): string {
+  const raw = typeof body.error === 'string' ? body.error : fallback;
+  if (res.status === 401 && /authentication required/i.test(raw)) {
+    return `${raw} Use Logout then sign in again. If Render rotated SECRET_KEY or you opened a new tab before this update, tokens must be refreshed.`;
+  }
+  return raw;
 }
 
 /** Session cookies plus Bearer token (needed when static site and API are on different hosts). */
 export function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers ?? {});
-  try {
-    const t = sessionStorage.getItem(API_TOKEN_KEY);
-    if (t) headers.set('Authorization', `Bearer ${t}`);
-  } catch {
-    /* ignore */
-  }
+  const t = getStoredApiToken();
+  if (t) headers.set('Authorization', `Bearer ${t}`);
   return fetch(input, {
     credentials: 'include',
     ...init,
@@ -288,8 +317,8 @@ export interface ApiPersonnelRow {
 export async function fetchPersonnel(): Promise<ApiPersonnelRow[]> {
   const res = await authFetch(apiUrl('/api/personnel/'), {});
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(typeof body.error === 'string' ? body.error : 'Could not load personnel');
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    throw new Error(apiErrorHint(res, body, 'Could not load personnel'));
   }
   const data = (await res.json()) as { personnel: ApiPersonnelRow[] };
   return data.personnel ?? [];
@@ -306,9 +335,9 @@ export async function createPersonnel(payload: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  const body = await res.json().catch(() => ({}));
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    throw new Error(typeof body.error === 'string' ? body.error : 'Could not add personnel');
+    throw new Error(apiErrorHint(res, body, 'Could not add personnel'));
   }
   return body as ApiPersonnelRow;
 }
@@ -317,9 +346,9 @@ export async function deletePersonnel(userId: string): Promise<void> {
   const res = await authFetch(apiUrl(`/api/personnel/${encodeURIComponent(userId)}/`), {
     method: 'DELETE',
   });
-  const body = await res.json().catch(() => ({}));
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    throw new Error(typeof body.error === 'string' ? body.error : 'Could not delete personnel');
+    throw new Error(apiErrorHint(res, body, 'Could not delete personnel'));
   }
 }
 
@@ -387,10 +416,9 @@ export async function submitRiskAssessment(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  const body = await res.json().catch(() => ({}));
+  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    const msg = typeof body.error === 'string' ? body.error : 'Could not save assessment';
-    throw new Error(msg);
+    throw new Error(apiErrorHint(res, body, 'Could not save assessment'));
   }
   return body as { ok: boolean; report_id: string; risk_score: number; risk_level: string; status_code: string };
 }
@@ -405,11 +433,7 @@ async function assessmentPdfBlobUrl(reportId: string): Promise<string> {
 }
 
 function tryHasStoredApiToken(): boolean {
-  try {
-    return !!sessionStorage.getItem(API_TOKEN_KEY);
-  } catch {
-    return false;
-  }
+  return !!getStoredApiToken();
 }
 
 /** Open printable PDF endpoint in a new tab for browser preview/print. */
