@@ -32,3 +32,7 @@ Run these from the project root:
 - `npm run version:beta`
 
 These commands update `package.json` version and create a matching git tag with the `v` prefix.
+
+## Legacy tags (non-semver names)
+
+Older annotated tags **`alpha`** and **`beta`** used plain names instead of `vX.Y.Z-*`. They mark the same milestones as **`v0.1.0-alpha.1`** and **`v0.1.0-beta.1`**. New work should use **`v`-prefixed semver** tags only.
