@@ -222,15 +222,70 @@ export function ViewRiskDetails() {
             </button>
           </div>
         ) : !assessment ? (
-          <div className="bg-white rounded-lg shadow-lg p-10 text-center">
-            <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
-            <h2 className="text-xl text-slate-800 mb-2">No saved assessment</h2>
-            <p className="text-slate-600 mb-2">
-              {report.id} exists, but no risk assessment is stored for it yet. Open risks in the dashboard should
-              normally include only assessed incidents—try refreshing the dashboard or complete an assessment for this
-              report.
-            </p>
-            <div className="flex flex-wrap gap-3 justify-center mt-6">
+          <div className="space-y-6">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-5 flex gap-4">
+              <AlertCircle className="h-10 w-10 text-amber-600 shrink-0" aria-hidden />
+              <div>
+                <h2 className="text-lg font-semibold text-amber-950">No saved assessment yet</h2>
+                <p className="text-sm text-amber-900 mt-1">
+                  <span className="font-mono">{report.id}</span> is loaded below. Pending reports need an SSIO assessment
+                  before this page shows scoring and mitigation. Use Assess for pending items, or return to the
+                  dashboard queue.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8">
+              <h3 className="text-lg font-medium text-slate-800 mb-4">Incident (read-only)</h3>
+              <div className="grid sm:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-slate-500">Status</span>
+                  <p className="text-slate-800 mt-1">{report.status}</p>
+                </div>
+                <div>
+                  <span className="text-slate-500">Reported</span>
+                  <p className="text-slate-800 mt-1">
+                    {report.date} — {report.guard}
+                  </p>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-slate-500">Location</span>
+                  <p className="text-slate-800 mt-1">{report.location}</p>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-slate-500">Hazard</span>
+                  <p className="text-slate-800 mt-1">{report.hazard}</p>
+                </div>
+              </div>
+              {report.hazard_types && report.hazard_types.length > 0 ? (
+                <div className="mt-4">
+                  <span className="text-sm text-slate-500">Hazard types</span>
+                  <ul className="mt-2 list-disc pl-5 text-slate-800 text-sm space-y-1">
+                    {report.hazard_types.map((t, i) => (
+                      <li key={`${i}-${t}`}>{t}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {ensureMediaSrc(report.photo_url) ? (
+                <div className="mt-4">
+                  <span className="text-sm text-slate-500 block mb-2">Photo</span>
+                  <img
+                    src={ensureMediaSrc(report.photo_url)!}
+                    alt="Incident"
+                    className="max-h-56 rounded-md border border-slate-200 object-contain"
+                  />
+                </div>
+              ) : null}
+              {report.description ? (
+                <div className="mt-4">
+                  <span className="text-sm text-slate-500">Description</span>
+                  <p className="text-slate-800 text-sm mt-1 whitespace-pre-wrap">{report.description}</p>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="flex flex-wrap gap-3">
               <button
                 type="button"
                 onClick={() => navigate('/admin/dashboard')}
@@ -244,9 +299,17 @@ export function ViewRiskDetails() {
                   onClick={() => navigate(`/admin/assess/${report.id}`)}
                   className="px-6 py-2 bg-[var(--xu-blue)] text-white rounded-md hover:bg-blue-700"
                 >
-                  Assess now
+                  Open assessment form
                 </button>
-              ) : null}
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/admin/request-info/${encodeURIComponent(report.id)}`)}
+                  className="px-6 py-2 border border-slate-300 rounded-md hover:bg-slate-50"
+                >
+                  Request more info
+                </button>
+              )}
             </div>
           </div>
         ) : (

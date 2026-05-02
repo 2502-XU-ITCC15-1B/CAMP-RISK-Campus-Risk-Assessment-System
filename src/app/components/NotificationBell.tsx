@@ -10,11 +10,18 @@ import {
 
 type Role = 'admin' | 'guard';
 
-function destinationFor(role: Role, reportId: string): string {
+/** Pending incidents notify admins — those must not open view-risk (no assessment JSON yet). */
+function adminDestination(reportId: string, kind: string): string {
   const id = (reportId || '').trim();
-  if (role === 'admin') {
-    return id ? `/admin/view-risk/${encodeURIComponent(id)}` : '/admin/dashboard';
+  if (!id) return '/admin/dashboard';
+  if (kind === 'incident_submitted' || kind === 'incident_updated') {
+    return `/admin/assess/${encodeURIComponent(id)}`;
   }
+  return `/admin/view-risk/${encodeURIComponent(id)}`;
+}
+
+function guardDestination(reportId: string): string {
+  const id = (reportId || '').trim();
   return id ? `/guard/dashboard?report=${encodeURIComponent(id)}` : '/guard/dashboard';
 }
 
@@ -65,7 +72,7 @@ export function NotificationBell({ role }: { role: Role }) {
     }
     setOpen(false);
     void load();
-    navigate(destinationFor(role, n.report_id));
+    navigate(role === 'admin' ? adminDestination(n.report_id, n.kind) : guardDestination(n.report_id));
   };
 
   return (

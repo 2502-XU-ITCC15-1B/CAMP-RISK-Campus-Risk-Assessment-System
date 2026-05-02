@@ -407,6 +407,31 @@ export function GuardDashboard() {
                 <p className="text-slate-800">{selectedReport.submittedBy}</p>
               </div>
 
+              {!detailLoading && selectedDetail?.assessment ? (
+                <div className="border border-blue-200 bg-blue-50/70 rounded-lg p-4 space-y-2">
+                  <p className="text-sm font-semibold text-blue-950">SSIO risk assessment</p>
+                  <p className="text-sm text-slate-800">
+                    Score <span className="font-semibold">{selectedDetail.assessment.risk_score}</span>
+                    <span className="text-slate-500"> · </span>
+                    {selectedDetail.assessment.risk_level}
+                  </p>
+                  {selectedDetail.assessment.mitigation_actions &&
+                  selectedDetail.assessment.mitigation_actions.length > 0 ? (
+                    <div className="text-sm text-slate-700">
+                      <p className="text-slate-600 text-xs mb-1">First mitigation action</p>
+                      <p className="font-medium">
+                        {(selectedDetail.assessment.mitigation_actions[0] as { description?: string }).description ||
+                          '—'}
+                      </p>
+                    </div>
+                  ) : null}
+                  <p className="text-xs text-slate-600">
+                    Open this report from the bell to see the summary here. Full PDF and officer tools are in the SSIO
+                    portal.
+                  </p>
+                </div>
+              ) : null}
+
               {detailLoading ? (
                 <p className="text-sm text-slate-500">Loading SSIO messages…</p>
               ) : selectedDetail?.information_requests && selectedDetail.information_requests.length > 0 ? (

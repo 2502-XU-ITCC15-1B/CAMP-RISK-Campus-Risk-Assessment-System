@@ -20,6 +20,22 @@ Fixed **SSIO bootstrap account** (code): username `Admin`, password `Admin@123`,
 
 > **Tester access:** Provide the static URL credentials test accounts only; rotate `SECRET_KEY` / DB if you recycle the environment.
 
+### SPA refresh shows “Not Found” (Render static site)
+
+CAMP-RISK is a **Vite + React** app: routes such as `/admin/dashboard` exist only **in the browser**. Visiting them works after you open `/` and click around, but a **refresh** asks the CDN for a real file at that path—and there isn’t one, so you see **Not Found**.
+
+**Fix:** In the Render [Dashboard](https://dashboard.render.com) → **your Static Site** → **Redirects / Rewrites** → add:
+
+| Field | Value |
+|--------|--------|
+| Source | `/*` |
+| Destination | `/index.html` |
+| Action | **Rewrite** |
+
+Details: [Render — Static site redirects and rewrites](https://render.com/docs/redirects-rewrites).
+
+In a **Blueprint** (`render.yaml`), the same behavior is `routes:` with `type: rewrite`, `source: /*`, `destination: /index.html` on the static-site service definition.
+
 ## Infrastructure
 
 | File | Purpose |
