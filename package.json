@@ -8,6 +8,7 @@
     "dev": "npm run dev:spa",
     "dev:static": "npm run build:css && npx --yes serve public -p 5173 -s",
     "build": "npm run build:css",
+    "build:app": "npm run build:css && vite build",
     "build:css": "npx @tailwindcss/cli -i ./src/styles/input.css -o ./public/styles/app.css --minify",
     "watch:css": "npx @tailwindcss/cli -i ./src/styles/input.css -o ./public/styles/app.css --watch",
     "version:patch": "npm version patch",
