@@ -31,7 +31,12 @@ Document real values in your evidence bundle (never commit secrets to README).
 
 Pick **one** channel and stick to it for analyzable data.
 
-### Option A — Google Forms (recommended)
+**Team decision (this project): Option A — Google Forms.**
+
+- **Form URL (fill in after you create the form):** `________________________`
+- **Evidence for PDF:** screenshot of the form editor + **Responses → Download CSV (.csv)** after beta closes.
+
+### Option A — Google Forms (recommended) — **selected**
 
 1. Form fields: scenario ID, severity (blocking / annoying / cosmetic), repro steps, browser/device, screenshots optional.
 2. Share link on beta instructions page and **pinned chat**.

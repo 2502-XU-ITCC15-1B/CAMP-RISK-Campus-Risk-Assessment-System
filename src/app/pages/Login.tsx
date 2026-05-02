@@ -129,8 +129,21 @@ export function Login() {
             </button>
           </form>
 
-          <div className="mt-8 pt-6 border-t border-slate-200">
-            <div className="text-center text-sm text-slate-500 mb-4">
+          <div className="mt-8 pt-6 border-t border-slate-200 space-y-3">
+            {(import.meta.env.VITE_FEEDBACK_URL as string | undefined)?.trim() ? (
+              <p className="text-center text-sm">
+                <a
+                  href={(import.meta.env.VITE_FEEDBACK_URL as string).trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[var(--xu-blue)] hover:underline font-medium"
+                >
+                  Beta feedback form
+                </a>
+                <span className="text-slate-500"> — opens in a new tab</span>
+              </p>
+            ) : null}
+            <div className="text-center text-sm text-slate-500">
               © 2026 Xavier University SSIO
             </div>
           </div>
