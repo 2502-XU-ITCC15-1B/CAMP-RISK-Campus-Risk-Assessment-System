@@ -11,6 +11,7 @@ import {
   fetchGoogleSheetsBackupInfo,
   fetchReports,
   type GuardReportTallyRow,
+  type GuardSubmissionRankingRow,
   type MitigationTracking,
 } from '../lib/api';
 
@@ -235,6 +236,74 @@ function LineChartPanel({ data }: { data: ChartDatum[] }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function GuardSubmissionRankingPanel({ rows }: { rows: GuardSubmissionRankingRow[] }) {
+  const maxCount = Math.max(1, ...rows.map((r) => r.report_count));
+  const palette = ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#0ea5e9', '#0284c7', '#38bdf8', '#0f766e'];
+
+  if (rows.length === 0) {
+    return (
+      <p className="text-sm text-slate-500 py-8 text-center">
+        No security guard accounts yet. Add personnel to see rankings here.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-3 sm:space-y-4" role="list">
+      {rows.map((row, i) => {
+        const pct = Math.round((100 * row.report_count) / maxCount);
+        const color = palette[i % palette.length];
+        const displayName = row.guard_name === row.username ? row.guard_name : `${row.guard_name} (${row.username})`;
+        const tip = `Rank ${row.rank} · ${displayName} · ${row.report_count} report${row.report_count === 1 ? '' : 's'} in this period${
+          row.is_active ? '' : ' · account inactive'
+        }`;
+        return (
+          <div
+            key={row.user_id}
+            role="listitem"
+            title={tip}
+            className="rounded-lg border border-slate-100 bg-slate-50/50 p-3 sm:p-4 transition-colors hover:bg-slate-50"
+          >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+              <div className="flex min-w-0 flex-1 items-start gap-3 sm:max-w-[min(100%,20rem)]">
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-sm font-bold text-[var(--xu-blue)] shadow ring-1 ring-slate-200/80 tabular-nums"
+                  aria-label={`Rank ${row.rank}`}
+                >
+                  {row.rank}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-900 truncate">{displayName}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 font-mono truncate">@{row.username}</p>
+                  {!row.is_active ? (
+                    <p className="mt-1">
+                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-900">
+                        Inactive account
+                      </span>
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+              <div className="min-w-0 flex-[2]">
+                <div className="mb-1 flex items-center justify-between gap-2 text-xs text-slate-600">
+                  <span className="tabular-nums font-medium text-slate-800">{row.report_count} total</span>
+                  <span className="text-slate-400 hidden sm:inline">{pct}% of peak</span>
+                </div>
+                <div className="h-3 w-full overflow-hidden rounded-full bg-slate-200/90">
+                  <div
+                    className="h-3 rounded-full transition-all duration-700 ease-out"
+                    style={{ width: `${pct}%`, backgroundColor: color }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -521,6 +590,7 @@ export function AdminDashboard() {
   const [riskTypeGraphAction, setRiskTypeGraphAction] = useState<GraphAction>('print');
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [guardReportTally, setGuardReportTally] = useState<GuardReportTallyRow[]>([]);
+  const [guardSubmissionRanking, setGuardSubmissionRanking] = useState<GuardSubmissionRankingRow[]>([]);
   const [backupSheet, setBackupSheet] = useState<{ url: string | null; configured: boolean }>({
     url: null,
     configured: false,
@@ -605,6 +675,7 @@ export function AdminDashboard() {
 
       const d = await fetchDashboardSummary(params);
       setGuardReportTally(d.guard_report_tally ?? []);
+      setGuardSubmissionRanking(d.guard_submission_ranking ?? []);
       setOpenRisksCount(d.open_risks_count);
       setOverdueActionsCount(d.overdue_actions_count);
       setOpenRisks(
@@ -642,6 +713,7 @@ export function AdminDashboard() {
       setTopRiskTypes(d.top_risk_types ?? []);
     } catch {
       setGuardReportTally([]);
+      setGuardSubmissionRanking([]);
       setOpenRisksCount(0);
       setOverdueActionsCount(0);
       setOpenRisks([]);
@@ -1160,6 +1232,22 @@ export function AdminDashboard() {
             ) : (
               <LineChartPanel data={riskTypeData} />
             )}
+          </div>
+        </div>
+
+        <div className="mt-8 app-card overflow-hidden">
+          <div className="border-b border-slate-100 px-4 py-4 sm:px-6 sm:py-5">
+            <h3 className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">
+              Guard report submission summary
+            </h3>
+            <p className="mt-1 text-sm leading-relaxed text-slate-500">
+              Guard efficiency ranking — total incident reports submitted per guard in the selected timeframe. Includes
+              all registered guard accounts (zero if none filed). Updates when you change the timeframe or refresh this
+              page after new reports.
+            </p>
+          </div>
+          <div className="p-4 sm:p-6">
+            <GuardSubmissionRankingPanel rows={guardSubmissionRanking} />
           </div>
         </div>
       </main>

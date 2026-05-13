@@ -304,6 +304,16 @@ export interface GuardReportTallyRow {
   report_count: number;
 }
 
+/** Admin-only: all guard accounts ranked by report count in the dashboard date range. */
+export interface GuardSubmissionRankingRow {
+  rank: number;
+  user_id: string;
+  username: string;
+  guard_name: string;
+  report_count: number;
+  is_active: boolean;
+}
+
 export interface DashboardSummary {
   pending_count: number;
   open_risks_count: number;
@@ -330,6 +340,8 @@ export interface DashboardSummary {
   risk_register: Array<{ id: string; severity: string; status: string }>;
   hazard_frequency: Array<{ hazard: string; count: number }>;
   top_risk_types: Array<{ risk_type: string; count: number }>;
+  /** Present only for SSIO admin sessions. */
+  guard_submission_ranking?: GuardSubmissionRankingRow[];
 }
 
 export interface ApiPersonnelRow {
