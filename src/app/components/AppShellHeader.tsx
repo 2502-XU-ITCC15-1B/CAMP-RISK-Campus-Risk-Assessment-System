@@ -19,7 +19,9 @@ export function AppShellHeader({ actions }: AppShellHeaderProps) {
           </div>
         </div>
         {actions ? (
-          <div className="flex flex-wrap items-center gap-2 sm:justify-end sm:gap-2.5">{actions}</div>
+          <div className="flex min-h-0 w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:gap-2.5">
+            {actions}
+          </div>
         ) : null}
       </div>
     </header>

@@ -135,10 +135,12 @@ export function GuardDashboard() {
         }
       />
 
-      <main className="app-main">
-        <div className="mb-6 sm:mb-8">
-          <h2 className="app-page-title">Welcome, {user?.fullName}</h2>
-          <p className="app-page-subtitle mt-1.5">Security guard workspace — file incidents and review your history.</p>
+      <main className="app-main min-w-0">
+        <div className="mb-6 min-w-0 max-w-full sm:mb-8">
+          <h2 className="app-page-title break-words">Welcome, {user?.fullName}</h2>
+          <p className="app-page-subtitle mt-1.5">
+            Security guard workspace — file incidents and review your history.
+          </p>
         </div>
 
         {loadError && (
@@ -160,13 +162,13 @@ export function GuardDashboard() {
           </div>
         )}
 
-        <div className="mb-8 grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="mb-8 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-2">
           <div
             role="button"
             tabIndex={0}
             onClick={() => navigate('/guard/report')}
             onKeyDown={(e) => e.key === 'Enter' && navigate('/guard/report')}
-            className="cursor-pointer rounded-xl border border-blue-900/20 bg-gradient-to-br from-[var(--xu-blue)] via-blue-800 to-blue-950 p-7 text-white shadow-md transition-shadow duration-200 hover:shadow-lg lg:p-9"
+            className="min-w-0 cursor-pointer rounded-xl border border-blue-900/20 bg-gradient-to-br from-[var(--xu-blue)] via-blue-800 to-blue-950 p-7 text-white shadow-md transition-shadow duration-200 hover:shadow-lg lg:p-9"
           >
             <FileText className="mb-4 h-14 w-14 opacity-90 lg:h-16 lg:w-16" aria-hidden />
             <h3 className="mb-2 text-xl font-semibold tracking-tight lg:text-2xl">Submit incident report</h3>
@@ -184,20 +186,20 @@ export function GuardDashboard() {
                 {recentSlice.map((report) => (
                   <div
                     key={report.id}
-                    className="flex items-start justify-between rounded-lg border border-slate-100 bg-slate-50/80 p-4 transition-colors hover:border-slate-200 hover:bg-slate-50"
+                    className="flex min-w-0 items-start justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50/80 p-4 transition-colors hover:border-slate-200 hover:bg-slate-50"
                   >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-2 flex items-center gap-2">
                         <span className="text-[var(--xu-blue)]">{report.id}</span>
                       </div>
-                      <div className="flex items-center gap-4 text-sm text-slate-600">
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
+                      <div className="flex flex-col gap-2 text-sm text-slate-600 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
+                        <div className="flex min-w-0 items-center gap-1">
+                          <Clock className="h-4 w-4 shrink-0" />
                           <span>{report.time}</span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <MapPin className="h-4 w-4" />
-                          <span>{report.location}</span>
+                        <div className="flex min-w-0 items-start gap-1 sm:items-center">
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0 sm:mt-0" />
+                          <span className="break-words">{report.location}</span>
                         </div>
                       </div>
                     </div>
@@ -215,12 +217,12 @@ export function GuardDashboard() {
           </div>
         </div>
 
-        <div className="app-card overflow-hidden">
+        <div className="app-card max-w-full min-w-0 overflow-hidden">
           <div className="border-b border-slate-100 px-4 py-4 sm:px-6">
             <h3 className="text-base font-semibold tracking-tight text-slate-900 sm:text-lg">My report history</h3>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+            <table className="w-full min-w-[34rem]">
               <thead className="app-table-head">
                 <tr>
                   <th className="px-3 sm:px-6 py-3 text-left text-sm text-slate-600">Date</th>
