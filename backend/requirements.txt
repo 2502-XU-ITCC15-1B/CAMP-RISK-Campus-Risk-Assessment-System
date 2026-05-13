@@ -1,4 +1,4 @@
-# Pip only — laptop setup guide for the team: ../LAPTOP-SETUP.txt (repo root)
+# Pip only — install from this folder: pip install -r requirements.txt
 Django>=4.2,<5
 django-cors-headers>=4.3,<5
 dj-database-url>=2.1,<3
