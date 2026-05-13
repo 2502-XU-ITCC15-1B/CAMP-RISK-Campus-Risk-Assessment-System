@@ -6,6 +6,7 @@ from io import BytesIO
 from typing import Optional, Tuple
 from xml.sax.saxutils import escape
 
+from django.contrib.auth import get_user_model
 from django.db.models import Count, Prefetch
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -1241,20 +1242,48 @@ def dashboard_summary(request):
         for row in guard_tally_qs
     ]
 
-    return JsonResponse(
-        {
-            'pending_count': pending_count,
-            'open_risks_count': open_risks_count,
-            'overdue_actions_count': len(overdue_actions),
-            'open_risks': open_risks_rows,
-            'overdue_actions': overdue_actions[:50],
-            'risk_register': risk_register_rows[:50],
-            'hazard_frequency': hazard_frequency_list,
-            'top_risk_types': top_risk_types_list,
-            'mitigation_tracking': mitigation_tracking,
-            'guard_report_tally': guard_report_tally,
+    guard_submission_ranking: list = []
+    if _is_admin(request.user):
+        UserModel = get_user_model()
+        count_by_uid = {
+            str(r['submitted_by_user_id']): r['report_count']
+            for r in base_reports.values('submitted_by_user_id').annotate(report_count=Count('id'))
         }
-    )
+        ranking_rows: list[dict] = []
+        for u in UserModel.objects.filter(profile__role=UserProfile.Role.GUARD).select_related('profile').order_by(
+            'username',
+        ):
+            uid = str(u.pk)
+            ranking_rows.append(
+                {
+                    'user_id': uid,
+                    'username': u.username,
+                    'guard_name': u.get_full_name().strip() or u.username,
+                    'report_count': count_by_uid.get(uid, 0),
+                    'is_active': u.is_active,
+                }
+            )
+        ranking_rows.sort(key=lambda x: (-x['report_count'], x['username'].lower()))
+        for i, row in enumerate(ranking_rows, start=1):
+            row['rank'] = i
+            guard_submission_ranking.append(row)
+
+    payload = {
+        'pending_count': pending_count,
+        'open_risks_count': open_risks_count,
+        'overdue_actions_count': len(overdue_actions),
+        'open_risks': open_risks_rows,
+        'overdue_actions': overdue_actions[:50],
+        'risk_register': risk_register_rows[:50],
+        'hazard_frequency': hazard_frequency_list,
+        'top_risk_types': top_risk_types_list,
+        'mitigation_tracking': mitigation_tracking,
+        'guard_report_tally': guard_report_tally,
+    }
+    if _is_admin(request.user):
+        payload['guard_submission_ranking'] = guard_submission_ranking
+
+    return JsonResponse(payload)
 
 
 @require_http_methods(['GET', 'HEAD'])
