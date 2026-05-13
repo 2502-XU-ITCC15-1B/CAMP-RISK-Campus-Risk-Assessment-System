@@ -218,6 +218,8 @@ export interface ApiReport {
   specific_location: string;
   other_hazard: string;
   photo_url: string | null;
+  /** All incident image URLs (up to 10); first matches photo_url when present. */
+  photo_urls?: string[];
   created_at: string;
   information_request_count?: number;
   assessment?: ApiRiskAssessmentDetail | null;

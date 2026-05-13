@@ -50,6 +50,26 @@ class IncidentReport(models.Model):
             parts.append(self.specific_location)
         return ', '.join(p for p in parts if p)
 
+    def has_attached_photos(self) -> bool:
+        if self.photo:
+            return True
+        return self.photos.exists()
+
+
+class IncidentReportPhoto(models.Model):
+    """Additional incident images (legacy single `photo` on IncidentReport is still supported)."""
+
+    report = models.ForeignKey(
+        IncidentReport,
+        on_delete=models.CASCADE,
+        related_name='photos',
+    )
+    image = models.ImageField(upload_to='report_photos/%Y/%m/')
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ['sort_order', 'id']
+
 
 class RiskAssessment(models.Model):
     """HIRAC-style assessment linked one-to-one with an incident report."""

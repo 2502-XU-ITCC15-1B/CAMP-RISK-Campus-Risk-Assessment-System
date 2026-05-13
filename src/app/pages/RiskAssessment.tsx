@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { Save, Send, AlertCircle } from 'lucide-react';
 import { AppShellHeader } from '../components/AppShellHeader';
+import { IncidentPhotoGallery } from '../components/IncidentPhotoGallery';
 import { riskChoicesForHazard } from '../constants/hazardRiskChoices';
 import { MITIGATION_TEAM_OPTIONS } from '../constants/mitigationTeams';
 import {
@@ -78,142 +79,6 @@ export function RiskAssessment() {
   const [submitError, setSubmitError] = useState('');
   const [draftMessage, setDraftMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [showImageModal, setShowImageModal] = useState(false);
-  /** True while image is shown in fullscreen (Browser API or viewport fallback). */
-  const [imageFullscreen, setImageFullscreen] = useState(false);
-  const [fullscreenFallback, setFullscreenFallback] = useState(false);
-  const [fsImageScale, setFsImageScale] = useState(1);
-  const fullscreenHostRef = useRef<HTMLDivElement>(null);
-  const fullscreenWheelRef = useRef<HTMLDivElement>(null);
-  const imageFullscreenRef = useRef(false);
-  /** Drag-to-pan in fullscreen viewer (same pointer id only). */
-  const imagePanRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
-
-  const requestFullscreenEl = useCallback((el: Element) => {
-    const node = el as HTMLElement & {
-      webkitRequestFullscreen?: () => Promise<void> | void;
-    };
-    if (typeof node.requestFullscreen === 'function') {
-      return node.requestFullscreen();
-    }
-    if (typeof node.webkitRequestFullscreen === 'function') {
-      return Promise.resolve(node.webkitRequestFullscreen());
-    }
-    return Promise.reject(new Error('Fullscreen not supported'));
-  }, []);
-
-  const exitFullscreenDoc = useCallback(async () => {
-    const doc = document as Document & {
-      webkitExitFullscreen?: () => Promise<void> | void;
-    };
-    try {
-      if (document.fullscreenElement && typeof document.exitFullscreen === 'function') {
-        await document.exitFullscreen();
-      } else if (typeof doc.webkitExitFullscreen === 'function') {
-        await doc.webkitExitFullscreen();
-      }
-    } catch {
-      // Ignore if not in fullscreen.
-    }
-  }, []);
-
-  const closeImageViewer = useCallback(async () => {
-    await exitFullscreenDoc();
-    setImageFullscreen(false);
-    setFullscreenFallback(false);
-    setFsImageScale(1);
-    setShowImageModal(false);
-  }, [exitFullscreenDoc]);
-
-  const exitImageFullscreenOnly = useCallback(async () => {
-    await exitFullscreenDoc();
-    setImageFullscreen(false);
-    setFullscreenFallback(false);
-    setFsImageScale(1);
-  }, [exitFullscreenDoc]);
-
-  useEffect(() => {
-    if (!imageFullscreen) return;
-    const host = fullscreenHostRef.current;
-    if (!host) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        await requestFullscreenEl(host);
-        if (!cancelled) setFullscreenFallback(false);
-      } catch {
-        if (!cancelled) setFullscreenFallback(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [imageFullscreen, requestFullscreenEl]);
-
-  useEffect(() => {
-    const onFsChange = () => {
-      const fs =
-        document.fullscreenElement ??
-        (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement ??
-        null;
-      if (!fs && imageFullscreenRef.current) {
-        setImageFullscreen(false);
-        setFullscreenFallback(false);
-        setFsImageScale(1);
-      }
-    };
-    document.addEventListener('fullscreenchange', onFsChange);
-    document.addEventListener('webkitfullscreenchange', onFsChange);
-    return () => {
-      document.removeEventListener('fullscreenchange', onFsChange);
-      document.removeEventListener('webkitfullscreenchange', onFsChange);
-    };
-  }, []);
-
-  imageFullscreenRef.current = imageFullscreen;
-
-  useEffect(() => {
-    if (!imageFullscreen) return;
-    const el = fullscreenWheelRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      const horizontalIntent = e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY);
-      if (horizontalIntent) {
-        e.preventDefault();
-        const amount = e.shiftKey ? e.deltaY : e.deltaX;
-        el.scrollLeft += amount;
-        return;
-      }
-      e.preventDefault();
-      const factor = e.deltaY < 0 ? 1.06 : 0.94;
-      setFsImageScale((s) => {
-        const next = s * factor;
-        return Math.min(10, Math.max(0.2, Number(next.toFixed(4))));
-      });
-    };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, [imageFullscreen]);
-
-  useEffect(() => {
-    if (!showImageModal && !imageFullscreen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return;
-      if (imageFullscreen) void exitImageFullscreenOnly();
-      else void closeImageViewer();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showImageModal, imageFullscreen, exitImageFullscreenOnly, closeImageViewer]);
-
-  useEffect(() => {
-    if (!fullscreenFallback) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [fullscreenFallback]);
 
   const draftStorageKey = reportId ? `camp-risk:draft:${reportId}` : '';
 
@@ -454,7 +319,14 @@ export function RiskAssessment() {
     setSubmitError('');
   };
 
-  const incidentPhotoSrc = sourceReport ? ensureMediaSrc(sourceReport.photo_url) : null;
+  const incidentPhotoUrls = useMemo(() => {
+    if (!sourceReport) return [] as string[];
+    const raw = sourceReport.photo_urls?.filter(Boolean) ?? [];
+    const resolved = raw.map((u) => ensureMediaSrc(u)).filter(Boolean) as string[];
+    if (resolved.length) return resolved;
+    const one = ensureMediaSrc(sourceReport.photo_url);
+    return one ? [one] : [];
+  }, [sourceReport]);
 
   return (
     <div className="app-page">
@@ -510,22 +382,15 @@ export function RiskAssessment() {
                       {sourceReport.date} — {sourceReport.guard}
                     </span>
                   </div>
-                  <div>
-                    {incidentPhotoSrc ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFsImageScale(1);
-                          setShowImageModal(true);
-                          setImageFullscreen(false);
-                          setFullscreenFallback(false);
-                        }}
-                        className="text-[var(--xu-blue)] hover:underline"
-                      >
-                        View attached image
-                      </button>
+                  <div className="sm:col-span-2">
+                    {incidentPhotoUrls.length > 0 ? (
+                      <IncidentPhotoGallery
+                        photoUrls={sourceReport.photo_urls}
+                        photoUrlFallback={sourceReport.photo_url}
+                        title="Incident photos"
+                      />
                     ) : (
-                      <span className="text-slate-500">No image attached</span>
+                      <span className="text-slate-500">No images attached.</span>
                     )}
                   </div>
                   {hazardTypesList.length > 0 ? (
@@ -955,108 +820,6 @@ export function RiskAssessment() {
           </form>
         </div>
       </main>
-      {showImageModal && incidentPhotoSrc && !imageFullscreen ? (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg p-4 w-full max-w-4xl shadow-xl">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-slate-800 text-lg font-medium">Attached Incident Image</h3>
-              <button
-                type="button"
-                onClick={() => void closeImageViewer()}
-                className="px-3 py-1.5 text-sm border border-slate-300 rounded-md hover:bg-slate-100"
-              >
-                Close
-              </button>
-            </div>
-            <div className="overflow-auto max-h-[70vh] rounded-md border border-slate-200 bg-slate-50 flex items-center justify-center min-h-[160px]">
-              <button
-                type="button"
-                onClick={() => {
-                  setFsImageScale(1);
-                  setImageFullscreen(true);
-                }}
-                className="p-0 border-0 bg-transparent cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--xu-blue)] rounded-md"
-                aria-label="Open image fullscreen"
-              >
-                <img src={incidentPhotoSrc} alt="Incident attachment preview" className="max-w-full max-h-[65vh] object-contain rounded-md" />
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {showImageModal && incidentPhotoSrc && imageFullscreen ? (
-        <div
-          ref={fullscreenHostRef}
-          className={`bg-black flex flex-col text-white w-screen h-screen ${fullscreenFallback ? 'fixed inset-0 z-[2147483647]' : ''}`}
-        >
-          <div className="shrink-0 flex justify-end gap-2 px-4 py-3 bg-black/80 select-none">
-            <button
-              type="button"
-              onClick={() => void exitImageFullscreenOnly()}
-              className="px-4 py-2 text-sm rounded-md bg-white/10 hover:bg-white/20 border border-white/20 text-white outline-none select-none caret-transparent cursor-pointer focus-visible:ring-2 focus-visible:ring-white/70"
-            >
-              Exit fullscreen
-            </button>
-            <button
-              type="button"
-              onClick={() => void closeImageViewer()}
-              className="px-4 py-2 text-sm rounded-md bg-white text-slate-900 hover:bg-slate-100 outline-none select-none caret-transparent cursor-pointer focus-visible:ring-2 focus-visible:ring-[var(--xu-blue)]"
-            >
-              Close
-            </button>
-          </div>
-          <div
-            ref={fullscreenWheelRef}
-            role="presentation"
-            className="flex-1 min-h-0 overflow-auto flex items-center justify-center p-4 cursor-grab active:cursor-grabbing touch-none"
-            onPointerDown={(e) => {
-              if (e.button !== 0) return;
-              imagePanRef.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY };
-              e.currentTarget.setPointerCapture(e.pointerId);
-            }}
-            onPointerMove={(e) => {
-              const st = imagePanRef.current;
-              if (!st || st.pointerId !== e.pointerId) return;
-              const dx = e.clientX - st.x;
-              const dy = e.clientY - st.y;
-              st.x = e.clientX;
-              st.y = e.clientY;
-              e.currentTarget.scrollLeft -= dx;
-              e.currentTarget.scrollTop -= dy;
-            }}
-            onPointerUp={(e) => {
-              if (imagePanRef.current?.pointerId === e.pointerId) {
-                imagePanRef.current = null;
-              }
-              try {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-              } catch {
-                /* already released */
-              }
-            }}
-            onPointerCancel={(e) => {
-              imagePanRef.current = null;
-              try {
-                e.currentTarget.releasePointerCapture(e.pointerId);
-              } catch {
-                /* already released */
-              }
-            }}
-          >
-            <img
-              src={incidentPhotoSrc}
-              alt="Incident attachment"
-              className="max-w-none object-contain select-none"
-              draggable={false}
-              style={{
-                transform: `scale(${fsImageScale})`,
-                transformOrigin: 'center center',
-              }}
-            />
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

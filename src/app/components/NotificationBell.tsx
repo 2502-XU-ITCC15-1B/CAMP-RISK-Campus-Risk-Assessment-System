@@ -50,8 +50,21 @@ export function NotificationBell({ role }: { role: Role }) {
 
   useEffect(() => {
     void load();
-    const id = window.setInterval(() => void load(), 30_000);
-    return () => window.clearInterval(id);
+    const pollMs = () => (document.visibilityState === 'visible' ? 12_000 : 90_000);
+    let id = window.setInterval(() => void load(), pollMs());
+    const onVis = () => {
+      window.clearInterval(id);
+      void load();
+      id = window.setInterval(() => void load(), pollMs());
+    };
+    const onFocus = () => void load();
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [load]);
 
   useEffect(() => {

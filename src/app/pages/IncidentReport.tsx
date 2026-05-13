@@ -5,6 +5,9 @@ import { AppShellHeader } from '../components/AppShellHeader';
 import { useAuth } from '../context/AuthContext';
 import { ensureMediaSrc, fetchReport, submitIncidentReport, updateGuardIncidentReport } from '../lib/api';
 
+const MAX_INCIDENT_PHOTOS = 10;
+const MAX_INCIDENT_BYTES = 5 * 1024 * 1024;
+
 export function IncidentReport() {
   const navigate = useNavigate();
   const { reportId } = useParams<{ reportId?: string }>();
@@ -17,15 +20,16 @@ export function IncidentReport() {
   const [room, setRoom] = useState('');
   const [specific, setSpecific] = useState('');
   const [description, setDescription] = useState('');
-  const [photo, setPhoto] = useState<File | null>(null);
+  const [newPhotoFiles, setNewPhotoFiles] = useState<File[]>([]);
+  const [blobPreviewUrls, setBlobPreviewUrls] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [loadError, setLoadError] = useState('');
   const [initialLoading, setInitialLoading] = useState(isEdit);
-  const [existingPhotoUrl, setExistingPhotoUrl] = useState<string | null>(null);
-  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
-  /** When editing, user asked to drop the saved photo on next submit (multipart flag). */
-  const [pendingRemoveSavedPhoto, setPendingRemoveSavedPhoto] = useState(false);
+  /** Saved-on-server image URLs when editing. */
+  const [serverPhotoUrls, setServerPhotoUrls] = useState<string[]>([]);
+  /** Edit: user chose to delete all saved photos on submit (no new files). */
+  const [pendingRemoveAllPhotos, setPendingRemoveAllPhotos] = useState(false);
 
   const hazardOptions = [
     'Earthquake Hazard',
@@ -79,9 +83,15 @@ export function IncidentReport() {
         setRoom(r.room || '');
         setSpecific(r.specific_location || '');
         setDescription(r.description || '');
-        setExistingPhotoUrl(r.photo_url ?? null);
-        setPhoto(null);
-        setPendingRemoveSavedPhoto(false);
+        const urls =
+          Array.isArray(r.photo_urls) && r.photo_urls.length > 0
+            ? r.photo_urls.filter(Boolean)
+            : r.photo_url
+              ? [r.photo_url]
+              : [];
+        setServerPhotoUrls(urls);
+        setNewPhotoFiles([]);
+        setPendingRemoveAllPhotos(false);
       } catch (e) {
         if (!cancelled) {
           setLoadError(e instanceof Error ? e.message : 'Could not load report');
@@ -96,14 +106,12 @@ export function IncidentReport() {
   }, [isEdit, reportId]);
 
   useEffect(() => {
-    if (!photo) {
-      setPhotoPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(photo);
-    setPhotoPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [photo]);
+    const urls = newPhotoFiles.map((f) => URL.createObjectURL(f));
+    setBlobPreviewUrls(urls);
+    return () => {
+      urls.forEach((u) => URL.revokeObjectURL(u));
+    };
+  }, [newPhotoFiles]);
 
   const toggleHazard = (hazard: string) => {
     if (hazardTypes.includes(hazard)) {
@@ -113,22 +121,40 @@ export function IncidentReport() {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setPendingRemoveSavedPhoto(false);
-    if (e.target.files && e.target.files[0]) {
-      setPhoto(e.target.files[0]);
-    }
+  const handleFilesAdd = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPendingRemoveAllPhotos(false);
+    const incoming = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (!incoming.length) return;
+    setError('');
+    setNewPhotoFiles((prev) => {
+      const next = [...prev];
+      for (const f of incoming) {
+        if (!/^image\/(jpeg|png)$/i.test(f.type)) {
+          setError('Only JPG and PNG images are allowed.');
+          return prev;
+        }
+        if (f.size > MAX_INCIDENT_BYTES) {
+          setError('Each image must be 5MB or smaller.');
+          return prev;
+        }
+        if (next.length >= MAX_INCIDENT_PHOTOS) break;
+        next.push(f);
+      }
+      if (prev.length + incoming.length > MAX_INCIDENT_PHOTOS && next.length === MAX_INCIDENT_PHOTOS) {
+        setError(`You can attach at most ${MAX_INCIDENT_PHOTOS} photos. Extra files were skipped.`);
+      }
+      return next;
+    });
   };
 
-  const clearPhotoChoice = () => {
-    if (photo) {
-      setPhoto(null);
-      setPendingRemoveSavedPhoto(false);
-      return;
-    }
-    if (isEdit && existingPhotoUrl) {
-      setPendingRemoveSavedPhoto(true);
-    }
+  const removeNewPhotoAt = (idx: number) => {
+    setNewPhotoFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const markRemoveAllSavedPhotos = () => {
+    setNewPhotoFiles([]);
+    if (isEdit && serverPhotoUrls.length > 0) setPendingRemoveAllPhotos(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -154,9 +180,9 @@ export function IncidentReport() {
       fd.append('room', room);
       fd.append('specific_location', specific);
       fd.append('description', description);
-      if (photo) {
-        fd.append('photo', photo);
-      } else if (isEdit && pendingRemoveSavedPhoto) {
+      if (newPhotoFiles.length > 0) {
+        newPhotoFiles.forEach((f) => fd.append('photos', f));
+      } else if (isEdit && pendingRemoveAllPhotos && serverPhotoUrls.length > 0) {
         fd.append('remove_photo', '1');
       }
       if (isEdit && reportId) {
@@ -245,64 +271,106 @@ export function IncidentReport() {
                 </div>
 
                 <div>
-                  <label className="block text-slate-800 mb-3">Photo Upload</label>
-                  <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 sm:p-8 text-center hover:border-[var(--xu-blue)] transition-colors">
+                  <label className="block text-slate-800 mb-2">Photos</label>
+                  <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+                    Add up to {MAX_INCIDENT_PHOTOS} images (JPG or PNG, max 5MB each). Three or more angles help SSIO
+                    assess risk. On edit, uploading new photos replaces all saved images.
+                  </p>
+                  <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-4 sm:p-5 hover:border-[var(--xu-blue)]/50 transition-colors">
                     <input
                       type="file"
                       accept="image/jpeg,image/png"
-                      onChange={handleFileChange}
-                      className="hidden"
-                      id="photo-upload"
+                      multiple
+                      onChange={handleFilesAdd}
+                      className="sr-only"
+                      id="incident-photos-upload"
+                      disabled={newPhotoFiles.length >= MAX_INCIDENT_PHOTOS}
                     />
-                    <label htmlFor="photo-upload" className="cursor-pointer">
-                      <Upload className="h-12 w-12 mx-auto mb-3 text-slate-400" />
-                      <p className="text-slate-700 mb-1">Click to Upload Image</p>
-                      <p className="text-sm text-slate-500">(JPG/PNG, Max 5MB)</p>
-                      {photo && (
-                        <p className="text-sm text-[var(--xu-blue)] mt-2">Selected: {photo.name}</p>
-                      )}
-                      {isEdit && !photo && existingPhotoUrl && !pendingRemoveSavedPhoto ? (
-                        <p className="text-sm text-slate-600 mt-2">
-                          Current photo is on file. Choose a new file only if you want to replace it.
-                        </p>
-                      ) : null}
-                      {isEdit && pendingRemoveSavedPhoto && !photo ? (
-                        <p className="text-sm text-amber-800 mt-2">
-                          The saved photo will be removed when you save this report.
-                        </p>
-                      ) : null}
+                    <label
+                      htmlFor="incident-photos-upload"
+                      className={`flex flex-col items-center gap-2 ${newPhotoFiles.length >= MAX_INCIDENT_PHOTOS ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+                    >
+                      <Upload className="h-9 w-9 text-slate-400" aria-hidden />
+                      <span className="text-sm font-medium text-slate-700">Add photos</span>
+                      <span className="text-xs text-slate-500">
+                        {newPhotoFiles.length}/{MAX_INCIDENT_PHOTOS} selected
+                      </span>
                     </label>
                   </div>
-                  {(photo || existingPhotoUrl || pendingRemoveSavedPhoto) && (
-                    <div className="mt-4 flex flex-col items-center gap-3">
-                      {(photoPreviewUrl || (ensureMediaSrc(existingPhotoUrl) && !pendingRemoveSavedPhoto)) && (
-                        <img
-                          src={(photoPreviewUrl || ensureMediaSrc(existingPhotoUrl))!}
-                          alt={photo ? 'New upload preview' : 'Current report photo'}
-                          className="max-h-56 w-full max-w-md rounded-md border border-slate-200 object-contain"
-                        />
-                      )}
-                      {photo || (isEdit && existingPhotoUrl) ? (
-                        pendingRemoveSavedPhoto ? (
-                          <button
-                            type="button"
-                            onClick={() => setPendingRemoveSavedPhoto(false)}
-                            className="text-sm text-[var(--xu-blue)] hover:text-blue-800 underline underline-offset-2"
-                          >
-                            Undo — keep saved photo
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={clearPhotoChoice}
-                            className="text-sm text-red-700 hover:text-red-900 underline underline-offset-2"
-                          >
-                            Remove photo
-                          </button>
-                        )
-                      ) : null}
+
+                  {isEdit && serverPhotoUrls.length > 0 && !pendingRemoveAllPhotos && newPhotoFiles.length === 0 ? (
+                    <p className="mt-2 text-xs text-slate-600">
+                      {serverPhotoUrls.length} photo{serverPhotoUrls.length === 1 ? '' : 's'} on file. Add new images
+                      to replace them, or remove all.
+                    </p>
+                  ) : null}
+                  {isEdit && pendingRemoveAllPhotos && newPhotoFiles.length === 0 ? (
+                    <p className="mt-2 text-xs text-amber-800">Saved photos will be removed when you save.</p>
+                  ) : null}
+
+                  {newPhotoFiles.length > 0 && isEdit && serverPhotoUrls.length > 0 ? (
+                    <p className="mt-2 text-xs text-slate-600">New images below replace all saved photos when you save.</p>
+                  ) : null}
+                  {newPhotoFiles.length > 0 || (!pendingRemoveAllPhotos && serverPhotoUrls.length > 0) ? (
+                    <div className="mt-4 flex flex-wrap gap-2 sm:gap-3">
+                      {newPhotoFiles.length > 0
+                        ? newPhotoFiles.map((f, i) => (
+                            <div
+                              key={`${f.name}-${i}`}
+                              className="relative h-20 w-20 sm:h-24 sm:w-24 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-100"
+                            >
+                              <img
+                                src={blobPreviewUrls[i] ?? ''}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeNewPhotoAt(i)}
+                                className="absolute right-0.5 top-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-white text-xs hover:bg-black/75"
+                                aria-label={`Remove ${f.name}`}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ))
+                        : !pendingRemoveAllPhotos
+                          ? serverPhotoUrls.map((u, i) => {
+                              const src = ensureMediaSrc(u);
+                              if (!src) return null;
+                              return (
+                                <div
+                                  key={`srv-${i}`}
+                                  className="relative h-20 w-20 sm:h-24 sm:w-24 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-white"
+                                >
+                                  <img src={src} alt="" className="h-full w-full object-cover" />
+                                </div>
+                              );
+                            })
+                          : null}
                     </div>
-                  )}
+                  ) : null}
+
+                  <div className="mt-3 flex flex-wrap gap-3 text-xs">
+                    {isEdit && serverPhotoUrls.length > 0 && !pendingRemoveAllPhotos ? (
+                      <button
+                        type="button"
+                        onClick={markRemoveAllSavedPhotos}
+                        className="text-red-700 hover:text-red-900 underline underline-offset-2"
+                      >
+                        Remove all saved photos
+                      </button>
+                    ) : null}
+                    {isEdit && pendingRemoveAllPhotos ? (
+                      <button
+                        type="button"
+                        onClick={() => setPendingRemoveAllPhotos(false)}
+                        className="text-[var(--xu-blue)] hover:text-blue-800 underline underline-offset-2"
+                      >
+                        Undo — keep saved photos
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
 
                 <div>

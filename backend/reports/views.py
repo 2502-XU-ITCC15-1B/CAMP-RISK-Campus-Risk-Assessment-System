@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 from xml.sax.saxutils import escape
 
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count, Prefetch
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -21,8 +22,68 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from .models import IncidentReport, InformationRequest, ReportStatusHistory, RiskAssessment
+from .models import IncidentReport, IncidentReportPhoto, InformationRequest, ReportStatusHistory, RiskAssessment
 from .notification_helpers import notify_admins, notify_submitting_guard
+
+_MAX_REPORT_IMAGE_BYTES = 5 * 1024 * 1024
+_MAX_REPORT_PHOTOS = 10
+_ALLOWED_REPORT_IMAGE_CT = frozenset({'image/jpeg', 'image/png'})
+
+
+def _validate_report_image(upload) -> Optional[str]:
+    """Return error message or None if OK."""
+    try:
+        size = getattr(upload, 'size', None) or int(getattr(upload, '_size', 0))
+    except (TypeError, ValueError):
+        size = 0
+    if size > _MAX_REPORT_IMAGE_BYTES:
+        return 'Each image must be at most 5MB'
+    ct = (getattr(upload, 'content_type', None) or '').lower()
+    name = (getattr(upload, 'name', '') or '').lower()
+    if ct not in _ALLOWED_REPORT_IMAGE_CT:
+        if not (name.endswith('.jpg') or name.endswith('.jpeg') or name.endswith('.png')):
+            return 'Images must be JPEG or PNG'
+    return None
+
+
+def _absolute_media_url(request, filefield) -> Optional[str]:
+    if not filefield:
+        return None
+    rel = filefield.url
+    if request is not None and isinstance(rel, str) and rel.startswith('/'):
+        try:
+            return request.build_absolute_uri(rel)
+        except Exception:  # noqa: BLE001
+            return rel
+    return rel
+
+
+def _clear_report_images(report: IncidentReport) -> None:
+    for p in list(report.photos.all()):
+        try:
+            p.image.delete(save=False)
+        except Exception:  # noqa: BLE001
+            pass
+        p.delete()
+    if report.photo:
+        try:
+            report.photo.delete(save=False)
+        except Exception:  # noqa: BLE001
+            pass
+        report.photo = None
+
+
+def _collect_report_photo_urls(r: IncidentReport, request) -> list[str]:
+    urls: list[str] = []
+    for p in r.photos.all():
+        u = _absolute_media_url(request, p.image)
+        if u:
+            urls.append(u)
+    if not urls:
+        u = _absolute_media_url(request, r.photo)
+        if u:
+            urls.append(u)
+    return urls
 
 
 def _user_role(user) -> Optional[str]:
@@ -126,16 +187,8 @@ def _serialize(r: IncidentReport, request) -> dict:
         created = timezone.make_aware(created, timezone.get_current_timezone())
     local = timezone.localtime(created)
     time_str = local.strftime('%I:%M %p').lstrip('0')
-    photo_url = None
-    if r.photo:
-        rel = r.photo.url
-        if request is not None and isinstance(rel, str) and rel.startswith('/'):
-            try:
-                photo_url = request.build_absolute_uri(rel)
-            except Exception:  # noqa: BLE001
-                photo_url = rel
-        else:
-            photo_url = rel
+    photo_urls = _collect_report_photo_urls(r, request)
+    photo_url = photo_urls[0] if photo_urls else None
     return {
         'id': r.public_id(),
         'hazard': r.hazard_summary(),
@@ -155,6 +208,7 @@ def _serialize(r: IncidentReport, request) -> dict:
         'specific_location': r.specific_location or '',
         'other_hazard': r.other_hazard or '',
         'photo_url': photo_url,
+        'photo_urls': photo_urls,
         'created_at': r.created_at.isoformat(),
         'information_request_count': getattr(r, 'information_request_count', 0),
     }
@@ -205,7 +259,7 @@ def report_list_create(request):
                 qs = qs.filter(submitted_by_user_id=user_id)
             if status:
                 qs = qs.filter(status=status)
-        qs = qs.annotate(information_request_count=Count('information_requests'))
+        qs = qs.annotate(information_request_count=Count('information_requests')).prefetch_related('photos')
         data = [_serialize(r, request) for r in qs[:500]]
         return JsonResponse({'reports': data})
 
@@ -222,7 +276,8 @@ def report_list_create(request):
     room = ''
     specific_location = ''
     description = ''
-    photo = None
+    multi_photos: list = []
+    single_photo = None
 
     if request.content_type and 'multipart/form-data' in request.content_type:
         submitted_by_name = (request.POST.get('submitted_by_name') or '').strip() or request.user.get_full_name().strip() or request.user.username
@@ -237,7 +292,8 @@ def report_list_create(request):
         room = (request.POST.get('room') or '').strip()
         specific_location = (request.POST.get('specific_location') or '').strip()
         description = (request.POST.get('description') or '').strip()
-        photo = request.FILES.get('photo')
+        multi_photos = [f for f in request.FILES.getlist('photos') if f]
+        single_photo = request.FILES.get('photo')
     else:
         try:
             body = json.loads(request.body.decode() or '{}')
@@ -259,6 +315,17 @@ def report_list_create(request):
     if not hazard_types:
         return JsonResponse({'error': 'Select at least one hazard type'}, status=400)
 
+    if len(multi_photos) > _MAX_REPORT_PHOTOS:
+        return JsonResponse({'error': f'At most {_MAX_REPORT_PHOTOS} photos allowed'}, status=400)
+    for f in multi_photos:
+        err = _validate_report_image(f)
+        if err:
+            return JsonResponse({'error': err}, status=400)
+    if single_photo and not multi_photos:
+        err = _validate_report_image(single_photo)
+        if err:
+            return JsonResponse({'error': err}, status=400)
+
     priority = _priority_from_hazards(hazard_types)
     report = IncidentReport(
         submitted_by_user_id=submitted_by_user_id,
@@ -272,9 +339,16 @@ def report_list_create(request):
         description=description,
         priority=priority,
     )
-    if photo:
-        report.photo = photo
-    report.save()
+    with transaction.atomic():
+        if multi_photos:
+            report.save()
+            for i, f in enumerate(multi_photos):
+                IncidentReportPhoto.objects.create(report=report, image=f, sort_order=i)
+        elif single_photo:
+            report.photo = single_photo
+            report.save()
+        else:
+            report.save()
     _append_history(report, '', IncidentReport.Status.PENDING, request.user, 'Report created')
     if _user_role(request.user) == UserProfile.Role.GUARD:
         notify_admins(
@@ -333,13 +407,25 @@ def report_guard_update(request, report_id: str):
     room = (request.POST.get('room') or '').strip()
     specific_location = (request.POST.get('specific_location') or '').strip()
     description = (request.POST.get('description') or '').strip()
-    photo = request.FILES.get('photo')
+    multi_photos = [f for f in request.FILES.getlist('photos') if f]
+    single_photo = request.FILES.get('photo')
     remove_photo = (request.POST.get('remove_photo') or '').strip().lower() in ('1', 'true', 'yes', 'on')
 
     if not building or not floor or not room:
         return JsonResponse({'error': 'building, floor, and room are required'}, status=400)
     if not hazard_types:
         return JsonResponse({'error': 'Select at least one hazard type'}, status=400)
+
+    if len(multi_photos) > _MAX_REPORT_PHOTOS:
+        return JsonResponse({'error': f'At most {_MAX_REPORT_PHOTOS} photos allowed'}, status=400)
+    for f in multi_photos:
+        err = _validate_report_image(f)
+        if err:
+            return JsonResponse({'error': err}, status=400)
+    if single_photo and not multi_photos:
+        err = _validate_report_image(single_photo)
+        if err:
+            return JsonResponse({'error': err}, status=400)
 
     old_status = report.status
     report.submitted_by_name = submitted_by_name
@@ -351,15 +437,22 @@ def report_guard_update(request, report_id: str):
     report.specific_location = specific_location
     report.description = description
     report.priority = _priority_from_hazards(hazard_types)
-    if remove_photo:
-        if report.photo:
-            report.photo.delete(save=False)
-        report.photo = None
-    elif photo:
-        if report.photo:
-            report.photo.delete(save=False)
-        report.photo = photo
-    report.save()
+
+    with transaction.atomic():
+        if multi_photos:
+            _clear_report_images(report)
+            report.save()
+            for i, f in enumerate(multi_photos):
+                IncidentReportPhoto.objects.create(report=report, image=f, sort_order=i)
+        elif single_photo:
+            _clear_report_images(report)
+            report.photo = single_photo
+            report.save()
+        elif remove_photo:
+            _clear_report_images(report)
+            report.save()
+        else:
+            report.save()
     _append_history(
         report,
         old_status,
@@ -389,10 +482,11 @@ def report_detail(request, report_id: str):
         r = (
             IncidentReport.objects.select_related('risk_assessment')
             .prefetch_related(
+                'photos',
                 Prefetch(
                     'information_requests',
                     queryset=InformationRequest.objects.order_by('-created_at'),
-                )
+                ),
             )
             .get(pk=pk)
         )
@@ -1426,7 +1520,7 @@ def _build_assessment_pdf_report(report: IncidentReport, ra: RiskAssessment) -> 
             [_pdf_p('Location', tbl_cell), _pdf_p(report.location_line(), tbl_cell)],
             [_pdf_p('Reported by', tbl_cell), _pdf_p(report.submitted_by_name, tbl_cell)],
             [_pdf_p('Submitted (local)', tbl_cell), _pdf_p(created.strftime('%Y-%m-%d %I:%M %p'), tbl_cell)],
-            [_pdf_p('Photo attached', tbl_cell), _pdf_p('Yes' if report.photo else 'No', tbl_cell)],
+            [_pdf_p('Photo attached', tbl_cell), _pdf_p('Yes' if report.has_attached_photos() else 'No', tbl_cell)],
             [_pdf_p('Description', tbl_cell), _pdf_p(report.description or '—', tbl_cell)],
         ]
     )

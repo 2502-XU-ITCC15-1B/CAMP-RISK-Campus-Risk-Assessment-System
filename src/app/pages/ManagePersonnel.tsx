@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../context/AuthContext';
-import { X, UserPlus, Trash2, Eye, EyeOff, UserX, UserCheck, FileSpreadsheet, ExternalLink, Pencil } from 'lucide-react';
+import { X, UserPlus, Trash2, Eye, EyeOff, UserX, UserCheck, FileSpreadsheet, ExternalLink, Pencil, Search } from 'lucide-react';
 import { AppShellHeader } from '../components/AppShellHeader';
 import { NotificationBell } from '../components/NotificationBell';
 import {
@@ -61,6 +61,16 @@ export function ManagePersonnel() {
     url: null,
     configured: false,
   });
+  const [personnelSearch, setPersonnelSearch] = useState('');
+
+  const filteredPersonnel = useMemo(() => {
+    const q = personnelSearch.trim().toLowerCase();
+    if (!q) return personnel;
+    return personnel.filter((p) => {
+      const blob = `${p.fullName} ${p.username} ${p.email} ${p.id}`.toLowerCase();
+      return blob.includes(q);
+    });
+  }, [personnel, personnelSearch]);
 
   const [formData, setFormData] = useState({
     username: '',
@@ -90,7 +100,7 @@ export function ManagePersonnel() {
     setListError('');
     try {
       const rows = await fetchPersonnel();
-      setPersonnel(rows);
+      setPersonnel([...rows].sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: 'base' })));
     } catch (e) {
       setListError(e instanceof Error ? e.message : 'Could not load personnel');
       setPersonnel([]);
@@ -137,7 +147,7 @@ export function ManagePersonnel() {
         email: formData.email.trim(),
         password: formData.password,
       });
-      setPersonnel((prev) => [...prev, row].sort((a, b) => a.username.localeCompare(b.username)));
+      setPersonnel((prev) => [...prev, row].sort((a, b) => a.fullName.localeCompare(b.fullName, undefined, { sensitivity: 'base' })));
       setFormError('');
       setShowPassword(false);
       setShowAddModal(false);
@@ -166,7 +176,9 @@ export function ManagePersonnel() {
     try {
       const row = await setPersonnelActive(id, active);
       setPersonnel((prev) =>
-        [...prev.map((p) => (p.id === id ? row : p))].sort((a, b) => a.username.localeCompare(b.username)),
+        [...prev.map((p) => (p.id === id ? row : p))].sort((a, b) =>
+          a.fullName.localeCompare(b.fullName, undefined, { sensitivity: 'base' }),
+        ),
       );
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not update status');
@@ -210,7 +222,9 @@ export function ManagePersonnel() {
         password: pwd,
       });
       setPersonnel((prev) =>
-        [...prev.map((p) => (p.id === editPersonId ? row : p))].sort((a, b) => a.username.localeCompare(b.username)),
+        [...prev.map((p) => (p.id === editPersonId ? row : p))].sort((a, b) =>
+          a.fullName.localeCompare(b.fullName, undefined, { sensitivity: 'base' }),
+        ),
       );
       setEditPersonId(null);
       setEditForm({ username: '', fullName: '', email: '', password: '' });
@@ -392,6 +406,27 @@ export function ManagePersonnel() {
           <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">{formError}</div>
         )}
 
+        <div className="app-card mb-4 px-4 py-3 sm:px-5">
+          <label htmlFor="personnel-search" className="sr-only">
+            Search personnel
+          </label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden />
+            <input
+              id="personnel-search"
+              type="search"
+              value={personnelSearch}
+              onChange={(e) => setPersonnelSearch(e.target.value)}
+              placeholder="Search by name, username, or email…"
+              autoComplete="off"
+              className="w-full min-h-10 rounded-lg border border-slate-200/90 bg-white py-2 pl-9 pr-3 text-sm text-slate-900 shadow-sm outline-none focus:border-[var(--xu-blue)]/45 focus:ring-2 focus:ring-[var(--xu-blue)]/18"
+            />
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">
+            List is sorted A–Z by full name. {filteredPersonnel.length === personnel.length ? null : `Showing ${filteredPersonnel.length} of ${personnel.length}.`}
+          </p>
+        </div>
+
         {/* Personnel list: cards on small screens, table on md+ */}
         <div className="md:hidden">
           {listLoading ? (
@@ -400,9 +435,11 @@ export function ManagePersonnel() {
             <div className="app-card p-8 text-center text-sm text-slate-500">
               No personnel yet. Tap Add personnel to create a guard login.
             </div>
+          ) : filteredPersonnel.length === 0 ? (
+            <div className="app-card p-8 text-center text-sm text-slate-500">No matches for your search.</div>
           ) : (
             <ul className="space-y-3">
-              {personnel.map((person) => (
+              {filteredPersonnel.map((person) => (
                 <li key={person.id} className="app-card overflow-hidden p-4">
                   <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 pb-3">
                     <div className="min-w-0">
@@ -475,8 +512,14 @@ export function ManagePersonnel() {
                       No personnel records yet. Use Add personnel to create a guard login.
                     </td>
                   </tr>
+                ) : filteredPersonnel.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-3 py-10 text-center text-sm text-slate-500 lg:px-6">
+                      No matches for your search.
+                    </td>
+                  </tr>
                 ) : (
-                  personnel.map((person) => (
+                  filteredPersonnel.map((person) => (
                     <tr key={person.id} className="hover:bg-slate-50">
                       <td className="px-3 py-3 align-top text-sm text-[var(--xu-blue)] lg:px-5">{person.id}</td>
                       <td className="min-w-0 px-3 py-3 align-top lg:px-5">

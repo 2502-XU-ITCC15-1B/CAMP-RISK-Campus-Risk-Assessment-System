@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { AlertCircle, ArrowLeft, FileDown } from 'lucide-react';
 import { AppShellHeader } from '../components/AppShellHeader';
+import { IncidentPhotoGallery } from '../components/IncidentPhotoGallery';
 import {
   downloadAssessmentPdf,
   ensureMediaSrc,
@@ -11,6 +12,11 @@ import {
   type ApiReport,
   type ApiRiskAssessmentDetail,
 } from '../lib/api';
+
+function reportHasPhotos(r: ApiReport): boolean {
+  if (r.photo_urls && r.photo_urls.length > 0) return true;
+  return Boolean(ensureMediaSrc(r.photo_url));
+}
 
 const CLASS_LABELS: Record<string, string> = {
   'earthquake-impact': 'Earthquake Impact',
@@ -268,13 +274,12 @@ export function ViewRiskDetails({
                   </ul>
                 </div>
               ) : null}
-              {ensureMediaSrc(report.photo_url) ? (
+              {reportHasPhotos(report) ? (
                 <div className="mt-4">
-                  <span className="text-sm text-slate-500 block mb-2">Photo</span>
-                  <img
-                    src={ensureMediaSrc(report.photo_url)!}
-                    alt="Incident"
-                    className="max-h-56 rounded-md border border-slate-200 object-contain"
+                  <IncidentPhotoGallery
+                    photoUrls={report.photo_urls}
+                    photoUrlFallback={report.photo_url}
+                    title="Photos"
                   />
                 </div>
               ) : null}
@@ -365,13 +370,12 @@ export function ViewRiskDetails({
               </div>
             </div>
 
-            {ensureMediaSrc(report.photo_url) ? (
+            {reportHasPhotos(report) ? (
               <div className="bg-white rounded-lg shadow-lg p-6 sm:p-8">
-                <h3 className="text-lg text-slate-800 mb-4">Incident photo</h3>
-                <img
-                  src={ensureMediaSrc(report.photo_url)!}
-                  alt="Incident attachment"
-                  className="max-h-72 rounded-md border border-slate-200 object-contain"
+                <IncidentPhotoGallery
+                  photoUrls={report.photo_urls}
+                  photoUrlFallback={report.photo_url}
+                  title="Incident photos"
                 />
               </div>
             ) : null}

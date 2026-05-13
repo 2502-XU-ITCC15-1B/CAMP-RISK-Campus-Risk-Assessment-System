@@ -3,6 +3,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router';
 import { useAuth } from '../context/AuthContext';
 import { Clock, MapPin, FileText, X } from 'lucide-react';
 import { AppShellHeader } from '../components/AppShellHeader';
+import { IncidentPhotoGallery } from '../components/IncidentPhotoGallery';
 import { NotificationBell } from '../components/NotificationBell';
 import { ensureMediaSrc, fetchReport, fetchReports, type ApiReport } from '../lib/api';
 
@@ -23,6 +24,7 @@ interface Report {
   room: string;
   specificLocation: string;
   photoUrl?: string | null;
+  photoUrls?: string[];
   informationRequestCount?: number;
 }
 
@@ -43,6 +45,7 @@ function mapApiReport(r: ApiReport): Report {
     room: r.room,
     specificLocation: r.specific_location,
     photoUrl: r.photo_url,
+    photoUrls: r.photo_urls,
     informationRequestCount: r.information_request_count ?? 0,
   };
 }
@@ -337,13 +340,13 @@ export function GuardDashboard() {
                 <p className="text-slate-800">{selectedReport.hazard}</p>
               </div>
 
-              {ensureMediaSrc(selectedReport.photoUrl ?? null) ? (
+              {(selectedReport.photoUrls?.length ?? 0) > 0 || ensureMediaSrc(selectedReport.photoUrl ?? null) ? (
                 <div>
-                  <p className="text-sm text-slate-600 mb-2">Photo</p>
-                  <img
-                    src={ensureMediaSrc(selectedReport.photoUrl)!}
-                    alt="Report attachment"
-                    className="max-h-48 rounded-md border border-slate-200"
+                  <p className="text-sm text-slate-600 mb-2">Photos</p>
+                  <IncidentPhotoGallery
+                    photoUrls={selectedReport.photoUrls}
+                    photoUrlFallback={selectedReport.photoUrl ?? null}
+                    title="Incident"
                   />
                 </div>
               ) : null}

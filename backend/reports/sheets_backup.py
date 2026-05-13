@@ -173,7 +173,7 @@ def append_incident_created_row(report) -> None:
         hz,
         report.other_hazard or '',
         desc,
-        'Yes' if report.photo else 'No',
+        'Yes' if report.has_attached_photos() else 'No',
     ]
     try:
         ws.append_row(row, value_input_option='USER_ENTERED')
