@@ -193,12 +193,12 @@
 @layer components {
   /** App shell: soft neutral canvas aligned with XU blue / slate accents */
   .app-page {
-    @apply min-h-screen antialiased text-slate-900;
+    @apply min-h-screen overflow-x-clip antialiased text-slate-900;
     background: linear-gradient(180deg, rgb(241 245 249) 0%, rgb(248 250 252) 40%, rgb(236 242 249) 100%);
   }
 
   .app-main {
-    @apply mx-auto max-w-7xl min-w-0 w-full px-4 py-6 sm:px-6 sm:py-8 lg:px-8;
+    @apply mx-auto max-w-7xl min-w-0 w-full py-6 pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] sm:px-6 sm:py-8 lg:px-8;
   }
 
   .app-main-md {

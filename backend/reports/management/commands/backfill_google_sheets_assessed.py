@@ -1,9 +1,3 @@
-"""
-One-time migration: push every existing RiskAssessment to Google Sheets
-(CAMP_AssessedReports + CAMP_Assessments). Run once after enabling backup and
-sharing the spreadsheet with the service account — running twice duplicates rows.
-"""
-
 from django.core.management.base import BaseCommand
 
 from reports.models import RiskAssessment

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router';
 import { Bell } from 'lucide-react';
 import {
@@ -9,6 +10,8 @@ import {
 } from '../lib/api';
 
 type Role = 'admin' | 'guard';
+
+type PanelBox = { top: number; left: number; width: number; maxHeight: number };
 
 /** Pending incidents notify admins — those must not open view-risk (no assessment JSON yet). */
 function adminDestination(reportId: string, kind: string): string {
@@ -40,7 +43,9 @@ export function NotificationBell({ role }: { role: Role }) {
   const [unread, setUnread] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelBox, setPanelBox] = useState<PanelBox | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const portalPanelRef = useRef<HTMLDivElement>(null);
   const itemsRef = useRef<ApiNotificationRow[]>([]);
   itemsRef.current = items;
 
@@ -71,7 +76,6 @@ export function NotificationBell({ role }: { role: Role }) {
       id = window.setInterval(() => void load(), pollMs());
     };
 
-    /** iOS / mobile often throttle timers in background; always refetch when the page is shown again. */
     const onVis = () => {
       resetInterval();
       void load();
@@ -101,11 +105,58 @@ export function NotificationBell({ role }: { role: Role }) {
     };
   }, [load]);
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setPanelBox(null);
+      return;
+    }
+
+    const update = () => {
+      const btn = buttonRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const vv = window.visualViewport;
+      const vh = vv?.height ?? window.innerHeight;
+      const vw = vv?.width ?? window.innerWidth;
+      const pad = 12;
+      const below = rect.bottom + 8;
+      const isNarrow = vw < 640;
+      let left: number;
+      let width: number;
+      if (isNarrow) {
+        width = Math.max(200, vw - pad * 2);
+        left = pad;
+      } else {
+        width = Math.min(352, vw - pad * 2);
+        left = rect.right - width;
+        if (left < pad) left = pad;
+        if (left + width > vw - pad) left = Math.max(pad, vw - pad - width);
+      }
+      const maxHeight = Math.max(160, Math.min(384, vh - below - pad));
+      setPanelBox({ top: below, left, width, maxHeight });
+    };
+
+    update();
+    window.addEventListener('resize', update);
+    const visualViewport = window.visualViewport;
+    visualViewport?.addEventListener('resize', update);
+    visualViewport?.addEventListener('scroll', update);
+    window.addEventListener('scroll', update, true);
+    return () => {
+      window.removeEventListener('resize', update);
+      visualViewport?.removeEventListener('resize', update);
+      visualViewport?.removeEventListener('scroll', update);
+      window.removeEventListener('scroll', update, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: PointerEvent) => {
-      const el = panelRef.current;
-      if (el && !el.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (buttonRef.current?.contains(t)) return;
+      if (portalPanelRef.current?.contains(t)) return;
+      setOpen(false);
     };
     document.addEventListener('pointerdown', onDoc);
     return () => document.removeEventListener('pointerdown', onDoc);
@@ -130,9 +181,103 @@ export function NotificationBell({ role }: { role: Role }) {
     navigate(role === 'admin' ? adminDestination(n.report_id, n.kind) : guardDestination(n.report_id));
   };
 
+  const panelContent = (
+    <>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
+        <span className="min-w-0 text-sm font-medium text-slate-800">
+          Notifications
+          {total > 0 ? (
+            <span className="mt-0.5 block text-xs font-normal text-slate-500">
+              {unread > 0 ? (
+                <>
+                  <span className="font-medium text-red-600">{unread} unread</span>
+                  {total !== unread ? <span> · {total} total</span> : null}
+                </>
+              ) : (
+                <span>{total} total (all read)</span>
+              )}
+            </span>
+          ) : null}
+        </span>
+        <button
+          type="button"
+          disabled={unread === 0 || loading}
+          onClick={() => {
+            void (async () => {
+              try {
+                await markAllNotificationsRead();
+                await load();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Could not mark read');
+              }
+            })();
+          }}
+          className="min-h-10 shrink-0 px-2 py-2 text-xs text-[var(--xu-blue)] hover:underline disabled:cursor-not-allowed disabled:opacity-40 disabled:no-underline touch-manipulation rounded-md"
+        >
+          Mark all read
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+        {error ? <p className="p-3 text-xs text-red-600">{error}</p> : null}
+        {loading && items.length === 0 ? (
+          <p className="p-4 text-sm text-slate-500">Loading…</p>
+        ) : items.length === 0 ? (
+          <p className="p-4 text-sm text-slate-500">No notifications yet.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {items.map((n) => (
+              <li key={n.id}>
+                <button
+                  type="button"
+                  onClick={() => void onItemClick(n)}
+                  className={`w-full touch-manipulation px-3 py-2.5 text-left transition-colors hover:bg-slate-50 ${
+                    n.read ? 'bg-white' : 'bg-blue-50/50'
+                  }`}
+                >
+                  <p className={`text-sm ${n.read ? 'text-slate-700' : 'font-medium text-slate-900'}`}>{n.title}</p>
+                  {n.body ? <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">{n.body}</p> : null}
+                  <p className="mt-1 text-[10px] text-slate-400">
+                    {new Date(n.created_at).toLocaleString()}
+                    {n.report_id ? ` · ${n.report_id}` : ''}
+                  </p>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+
+  const portal =
+    open &&
+    panelBox &&
+    typeof document !== 'undefined' &&
+    createPortal(
+      <div
+        ref={portalPanelRef}
+        className="flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl shadow-slate-900/10"
+        style={{
+          position: 'fixed',
+          top: panelBox.top,
+          left: panelBox.left,
+          width: panelBox.width,
+          maxHeight: panelBox.maxHeight,
+          zIndex: 70,
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Notifications"
+      >
+        {panelContent}
+      </div>,
+      document.body,
+    );
+
   return (
-    <div className="relative touch-manipulation" ref={panelRef}>
+    <div className="relative touch-manipulation">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => {
           setOpen((v) => !v);
@@ -140,6 +285,7 @@ export function NotificationBell({ role }: { role: Role }) {
         }}
         className="relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-slate-300 p-2 text-slate-700 transition-colors hover:bg-slate-100 touch-manipulation"
         aria-expanded={open}
+        aria-haspopup="dialog"
         aria-label={`Notifications. ${bellTitle}.`}
         title={bellTitle}
       >
@@ -161,75 +307,7 @@ export function NotificationBell({ role }: { role: Role }) {
         ) : null}
       </button>
 
-      {open ? (
-        <div className="z-[60] flex max-h-[min(70dvh,24rem)] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg max-sm:fixed max-sm:left-[max(0.75rem,env(safe-area-inset-left))] max-sm:right-[max(0.75rem,env(safe-area-inset-right))] max-sm:top-[max(4.5rem,env(safe-area-inset-top))] max-sm:max-h-[min(calc(100dvh-5.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom)),24rem)] max-sm:w-auto sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[min(100vw-2rem,22rem)]">
-          <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50">
-            <span className="min-w-0 text-sm font-medium text-slate-800">
-              Notifications
-              {total > 0 ? (
-                <span className="mt-0.5 block text-xs font-normal text-slate-500">
-                  {unread > 0 ? (
-                    <>
-                      <span className="font-medium text-red-600">{unread} unread</span>
-                      {total !== unread ? <span> · {total} total</span> : null}
-                    </>
-                  ) : (
-                    <span>{total} total (all read)</span>
-                  )}
-                </span>
-              ) : null}
-            </span>
-            <button
-              type="button"
-              disabled={unread === 0 || loading}
-              onClick={() => {
-                void (async () => {
-                  try {
-                    await markAllNotificationsRead();
-                    await load();
-                  } catch (e) {
-                    setError(e instanceof Error ? e.message : 'Could not mark read');
-                  }
-                })();
-              }}
-              className="min-h-10 px-2 py-2 text-xs text-[var(--xu-blue)] hover:underline disabled:opacity-40 disabled:no-underline touch-manipulation rounded-md"
-            >
-              Mark all read
-            </button>
-          </div>
-          <div className="overflow-y-auto flex-1">
-            {error ? <p className="p-3 text-xs text-red-600">{error}</p> : null}
-            {loading && items.length === 0 ? (
-              <p className="p-4 text-sm text-slate-500">Loading…</p>
-            ) : items.length === 0 ? (
-              <p className="p-4 text-sm text-slate-500">No notifications yet.</p>
-            ) : (
-              <ul className="divide-y divide-slate-100">
-                {items.map((n) => (
-                  <li key={n.id}>
-                    <button
-                      type="button"
-                      onClick={() => void onItemClick(n)}
-                      className={`w-full text-left px-3 py-2.5 hover:bg-slate-50 transition-colors ${
-                        n.read ? 'bg-white' : 'bg-blue-50/50'
-                      }`}
-                    >
-                      <p className={`text-sm ${n.read ? 'text-slate-700' : 'text-slate-900 font-medium'}`}>
-                        {n.title}
-                      </p>
-                      {n.body ? <p className="text-xs text-slate-600 mt-0.5 line-clamp-2">{n.body}</p> : null}
-                      <p className="text-[10px] text-slate-400 mt-1">
-                        {new Date(n.created_at).toLocaleString()}
-                        {n.report_id ? ` · ${n.report_id}` : ''}
-                      </p>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      ) : null}
+      {portal}
     </div>
   );
 }
