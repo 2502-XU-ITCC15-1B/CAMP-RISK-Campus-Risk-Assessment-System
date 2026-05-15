@@ -30,12 +30,42 @@ _MAX_REPORT_PHOTOS = 10
 _ALLOWED_REPORT_IMAGE_CT = frozenset({'image/jpeg', 'image/png'})
 
 
+def _upload_size_bytes(upload) -> int:
+    """Best-effort byte size for an uploaded file (Django UploadedFile)."""
+    try:
+        size = getattr(upload, 'size', None)
+        if isinstance(size, int) and size > 0:
+            return size
+    except (TypeError, ValueError):
+        pass
+    try:
+        pos = upload.tell()
+    except (AttributeError, OSError):
+        pos = 0
+    try:
+        upload.seek(0, 2)
+        size = upload.tell()
+        upload.seek(pos)
+        return int(size) if size > 0 else 0
+    except (AttributeError, OSError, TypeError, ValueError):
+        try:
+            upload.seek(pos)
+        except (AttributeError, OSError):
+            pass
+        return 0
+
+
 def _validate_report_image(upload) -> Optional[str]:
     """Return error message or None if OK."""
-    try:
-        size = getattr(upload, 'size', None) or int(getattr(upload, '_size', 0))
-    except (TypeError, ValueError):
-        size = 0
+    size = _upload_size_bytes(upload)
+    if size <= 0:
+        try:
+            upload.seek(0)
+            chunk = upload.read(_MAX_REPORT_IMAGE_BYTES + 1)
+            upload.seek(0)
+            size = len(chunk)
+        except (AttributeError, OSError, TypeError, ValueError):
+            size = 0
     if size > _MAX_REPORT_IMAGE_BYTES:
         return 'Each image must be at most 5MB'
     ct = (getattr(upload, 'content_type', None) or '').lower()

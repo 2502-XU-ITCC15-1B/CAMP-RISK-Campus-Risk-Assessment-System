@@ -4,9 +4,12 @@ import { X, Upload } from 'lucide-react';
 import { AppShellHeader } from '../components/AppShellHeader';
 import { useAuth } from '../context/AuthContext';
 import { ensureMediaSrc, fetchReport, submitIncidentReport, updateGuardIncidentReport } from '../lib/api';
-
-const MAX_INCIDENT_PHOTOS = 10;
-const MAX_INCIDENT_BYTES = 5 * 1024 * 1024;
+import {
+  MAX_INCIDENT_MB,
+  MAX_INCIDENT_PHOTOS,
+  validateIncidentPhotoFile,
+  validateIncidentPhotoList,
+} from '../lib/incidentPhotoLimits';
 
 export function IncidentReport() {
   const navigate = useNavigate();
@@ -126,25 +129,31 @@ export function IncidentReport() {
     const incoming = Array.from(e.target.files ?? []);
     e.target.value = '';
     if (!incoming.length) return;
-    setError('');
+
+    const rejections: string[] = [];
+    const accepted: File[] = [];
+
     setNewPhotoFiles((prev) => {
-      const next = [...prev];
+      const room = MAX_INCIDENT_PHOTOS - prev.length;
       for (const f of incoming) {
-        if (!/^image\/(jpeg|png)$/i.test(f.type)) {
-          setError('Only JPG and PNG images are allowed.');
-          return prev;
+        if (accepted.length >= room) {
+          rejections.push(`Only ${MAX_INCIDENT_PHOTOS} photos allowed. Extra files were skipped.`);
+          break;
         }
-        if (f.size > MAX_INCIDENT_BYTES) {
-          setError('Each image must be 5MB or smaller.');
-          return prev;
+        const err = validateIncidentPhotoFile(f);
+        if (err) {
+          rejections.push(`${f.name}: ${err}`);
+          continue;
         }
-        if (next.length >= MAX_INCIDENT_PHOTOS) break;
-        next.push(f);
+        accepted.push(f);
       }
-      if (prev.length + incoming.length > MAX_INCIDENT_PHOTOS && next.length === MAX_INCIDENT_PHOTOS) {
-        setError(`You can attach at most ${MAX_INCIDENT_PHOTOS} photos. Extra files were skipped.`);
+      if (rejections.length) {
+        setError(rejections.join(' '));
+      } else {
+        setError('');
       }
-      return next;
+      if (!accepted.length) return prev;
+      return [...prev, ...accepted];
     });
   };
 
@@ -166,6 +175,11 @@ export function IncidentReport() {
     }
     if (hazardTypes.length === 0) {
       setError('Select at least one hazard type.');
+      return;
+    }
+    const photoErr = validateIncidentPhotoList(newPhotoFiles);
+    if (photoErr) {
+      setError(photoErr);
       return;
     }
     setSubmitting(true);
@@ -273,7 +287,7 @@ export function IncidentReport() {
                 <div>
                   <label className="block text-slate-800 mb-2">Photos</label>
                   <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-                    Add up to {MAX_INCIDENT_PHOTOS} images (JPG or PNG, max 5MB each). Three or more angles help SSIO
+                    Add up to {MAX_INCIDENT_PHOTOS} images (JPG or PNG, max {MAX_INCIDENT_MB}MB each). Three or more angles help SSIO
                     assess risk. On edit, uploading new photos replaces all saved images.
                   </p>
                   <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/50 p-4 sm:p-5 hover:border-[var(--xu-blue)]/50 transition-colors">
